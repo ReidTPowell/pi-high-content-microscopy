@@ -39,6 +39,18 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(record["adapter"], "generic-tiff")
             self.assertIsNone(record["well"])
 
+    def test_metadata_is_scoped_to_the_acquisition_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            image = root / "experiment/timepoint0/assay_t0_A01_s0_w0_z0.tif"
+            image.parent.mkdir(parents=True)
+            image.touch()
+            (root / "experiment/image_metadata_1.csv").write_text(
+                "ImageSubFolderPath,ImageFileName,FovUuid\ntimepoint0,assay_t0_A01_s0_w0_z0.tif,local-id\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(MODULE.build_manifest(root)[0]["acquisition"]["FovUuid"], "local-id")
+
 
 if __name__ == "__main__":
     unittest.main()

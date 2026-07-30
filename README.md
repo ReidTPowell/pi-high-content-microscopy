@@ -16,9 +16,19 @@ python3 skills/high-content-microscopy/scripts/hca_manifest.py \
 
 python3 skills/high-content-microscopy/scripts/hca_validate.py \
   --manifest manifest.jsonl --config skills/high-content-microscopy/configs/hcsai-dapi-phalloidin.json
+
+python3 skills/high-content-microscopy/scripts/hca_well_plan.py \
+  --manifest manifest.jsonl --output-dir well-jobs --workers 4
 ```
 
 Then ask Pi to inspect the manifest and design or execute the assay-specific pipeline.
+
+For a batch directory containing several acquisitions, enumerate plate roots first and run the above workflow separately for every returned root:
+
+```sh
+python3 skills/high-content-microscopy/scripts/hca_manifest.py \
+  --input /path/to/batch --discover-plates --output plates.json
+```
 
 The bundled HCSai profile is validated against the included directory structure used by MetaXpress-style exports, including the DAPI/TRITC data at `TAMU-IBT_Chetna Dureja`. It is an example, not a global default.
 

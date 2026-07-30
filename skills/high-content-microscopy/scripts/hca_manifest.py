@@ -40,14 +40,30 @@ def generic_record(path: Path, root: Path) -> dict[str, Any]:
     }
 
 
+def discover_plates(root: Path) -> list[Path]:
+    """Return acquisition roots containing HCSai image metadata."""
+    return sorted({path.parent.parent for path in root.rglob("image_metadata_*.csv")})
+
+
 def metadata_index(root: Path) -> dict[str, dict[str, str]]:
+    """Index metadata by path relative to this acquisition, not basename."""
     index: dict[str, dict[str, str]] = {}
     for path in root.rglob("image_metadata_*.csv"):
         with path.open(newline="", encoding="utf-8-sig") as handle:
             for row in csv.DictReader(handle):
                 filename = row.get("ImageFileName")
                 if filename:
-                    index[filename] = {key: value for key, value in row.items() if value not in (None, "")}
+                    subfolder = row.get("ImageSubFolderPath", "")
+                    if subfolder:
+                        image_path = path.parent / subfolder / filename
+                        try:
+                            key = str(image_path.relative_to(root))
+                        except ValueError:
+                            continue
+                    else:
+                        # The fallback is scoped to a single acquisition root.
+                        key = filename
+                    index[key] = {key: value for key, value in row.items() if value not in (None, "")}
     return index
 
 
@@ -58,8 +74,9 @@ def build_manifest(root: Path) -> list[dict[str, Any]]:
         if not path.is_file() or not any(path.name.lower().endswith(ext) for ext in IMAGE_EXTENSIONS):
             continue
         record = hcsai_record(path, root) or generic_record(path, root)
-        if path.name in metadata:
-            record["acquisition"] = metadata[path.name]
+        acquisition = metadata.get(record["path"]) or metadata.get(path.name)
+        if acquisition:
+            record["acquisition"] = acquisition
         records.append(record)
     return records
 
@@ -78,10 +95,24 @@ def main() -> int:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--discover-plates", action="store_true",
+                        help="Write HCSai acquisition roots below --input, without creating a manifest")
     args = parser.parse_args()
     root = args.input.expanduser().resolve()
     if not root.is_dir():
         parser.error(f"input is not a directory: {root}")
+    plates = discover_plates(root)
+    if args.discover_plates:
+        payload = {"batch_root": str(root), "plates": [str(path) for path in plates]}
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(payload, indent=2))
+        return 0
+    if len(plates) > 1:
+        parser.error(
+            f"input contains {len(plates)} HCSai acquisitions; run with --discover-plates, "
+            "then create and analyze one manifest per acquisition"
+        )
     records = build_manifest(root)
     if not records:
         parser.error("no TIFF images found")
