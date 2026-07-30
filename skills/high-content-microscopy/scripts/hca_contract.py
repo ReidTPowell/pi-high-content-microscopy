@@ -4,12 +4,14 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
 REQUIRED_RECORD_FIELDS = {"path", "format", "adapter", "plate", "well", "row", "column", "site", "timepoint", "channel", "z", "prefix"}
+BARCODE_PATTERN = re.compile(r'"(?:barcode|plateid)"\s*:\s*"([^"]+)"', re.IGNORECASE)
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -22,6 +24,27 @@ def sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def barcode_for_input(input_root: Path) -> str | None:
+    """Read a barcode from the acquisition metadata without relying on folder names."""
+    for path in sorted(input_root.rglob("*.jdce")) + sorted(input_root.glob("*.mxprotocol")):
+        match = BARCODE_PATTERN.search(path.read_text(encoding="utf-8", errors="ignore"))
+        if match:
+            return match.group(1).strip()
+    return None
+
+
+def default_output_dir(input_root: Path) -> Path:
+    """Place barcode_piHCA beside the barcode-level raw input folder."""
+    root = input_root.resolve()
+    barcode = barcode_for_input(root)
+    if barcode:
+        for candidate in (root, *root.parents):
+            if candidate.name == barcode:
+                return candidate.parent / f"{barcode}_piHCA"
+        return root.parent / f"{barcode}_piHCA"
+    return root.parent / f"{root.name}_piHCA"
 
 
 def validate_record(record: dict[str, Any]) -> list[str]:

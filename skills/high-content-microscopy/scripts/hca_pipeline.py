@@ -9,7 +9,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-from hca_contract import load_jsonl
+from hca_contract import default_output_dir, load_jsonl
 
 
 def channel_for_role(config: dict, role: str) -> int:
@@ -35,7 +35,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--well-manifest", required=True, type=Path)
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--output-dir", type=Path, help="Defaults to <Barcode>_piHCA/wells/<well>")
     parser.add_argument("--source-root", type=Path, help="Root used to resolve manifest-relative image paths")
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
@@ -44,6 +44,11 @@ def main() -> int:
         parser.error("--source-root or input.source_root is required")
     source_root = Path(source_value)
     records = load_jsonl(args.well_manifest)
+    well = records[0].get("well") if records else None
+    if not well:
+        parser.error("well manifest is empty or has no well identifier")
+    if args.output_dir is None:
+        args.output_dir = default_output_dir(source_root) / "wells" / well
     segmentation = config["analysis"]["segmentation"]
     nucleus, cell, relationship = segmentation.get("nucleus", {}), segmentation.get("cell", {}), segmentation.get("relationship", {})
     if not nucleus.get("enabled"):
