@@ -1,0 +1,20 @@
+{
+  "name": "pi-high-content-microscopy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Configuration-first high-content microscopy analysis skill for Pi.",
+  "license": "MIT",
+  "keywords": ["pi-package", "pi", "microscopy", "high-content-screening", "HCS"],
+  "files": ["skills", "README.md", "LICENSE"],
+  "pi": {
+    "skills": ["./skills"]
+  },
+  "scripts": {
+    "test": "python3 -m unittest discover -s tests -v",
+    "check": "python3 -m compileall -q skills tests && npm run test",
+    "pack:dry": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

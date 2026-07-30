@@ -1,0 +1,19 @@
+{
+  "name": "hcsai-dapi-phalloidin-example",
+  "input": {
+    "adapter": "hcsai",
+    "extensions": [".tif", ".tiff"],
+    "expected_channels": [0, 1],
+    "expected_z_planes": [0]
+  },
+  "channels": {
+    "0": {"name": "DAPI", "role": "nucleus"},
+    "1": {"name": "TRITC-phalloidin", "role": "cell_boundary"}
+  },
+  "analysis": {
+    "unit_of_analysis": "well",
+    "qc": {"flag_saturated_pixels": true, "review_focus": true},
+    "segmentation": {"targets": ["nucleus", "cell"], "model": "select-after-overlay-review"},
+    "measurements": ["count", "area", "shape", "intensity"]
+  }
+}
