@@ -12,7 +12,7 @@ def require(module: str, extra: str):
     try:
         return __import__(module, fromlist=["*"])
     except ImportError as error:
-        raise SystemExit(f"{module} is required; install with: pip install '.[{extra}]'") from error
+        raise SystemExit(f"Could not import {module}: {error}. Install or repair: pip install '.[{extra}]'") from error
 
 
 def main() -> int:
