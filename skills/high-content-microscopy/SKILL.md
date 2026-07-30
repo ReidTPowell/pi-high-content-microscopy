@@ -12,6 +12,8 @@ description: Plan, validate, and analyze high-content microscopy assays with Pi.
 3. Write a versioned JSON or YAML assay configuration. Keep source images immutable and direct all results to a new output directory.
 4. Validate the manifest against configuration before choosing preprocessing or segmentation.
 
+Resolve this skill's installed directory from the loaded `SKILL.md`, then invoke its helpers by absolute path. Do not assume `scripts/` is relative to the user's project directory. Start every execution with `hca_doctor.py` and `hca_preflight.py`; report missing dependencies or unavailable source paths before writing output.
+
 Run the bundled helpers from this skill directory:
 
 ```sh
@@ -19,6 +21,8 @@ python3 scripts/hca_manifest.py --input <acquisition-directory> --output <manife
 python3 scripts/hca_validate.py --manifest <manifest.jsonl> --config <assay-config.json>
 python3 scripts/hca_well_plan.py --manifest <manifest.jsonl> --output-dir <well-jobs> --workers <N>
 python3 scripts/hca_qc.py --manifest <manifest.jsonl> --output <qc.json> --seed 7
+python3 scripts/hca_preflight.py --config <assay.json>
+python3 scripts/hca_doctor.py --config <assay.json> --source-root <plate-root>
 scripts/setup_env.sh --env .venv-hca --extras qc,cellpose
 ```
 
@@ -30,7 +34,7 @@ Create a seeded QC sample, inspect raw images and segmentation overlays, then sa
 
 For batch directories, first run `hca_manifest.py --input <batch> --discover-plates --output <plates.json>`, then process each returned acquisition root independently. Within one validated plate, dispatch only independent well jobs in parallel and recombine by stable identifiers. Do not parallelize across plates unless the batch-correction and statistical plan explicitly permits it.
 
-Select segmentation based on the biological object and image evidence: nuclei, whole cells, organelles, colonies, or tissue. Do not infer DAPI, a cytoplasm channel, Cellpose, a two-channel layout, or a 96-well plate from filename order. Tune with representative images from controls and treatments, retain overlays, and quantify failure cases.
+Select segmentation based on the biological object and image evidence: nuclei, whole cells, organelles, colonies, or tissue. Run `hca_preflight.py` before dispatching jobs so unavailable model dependencies fail before consuming plate resources. Do not infer DAPI, a cytoplasm channel, Cellpose, a two-channel layout, or a 96-well plate from filename order. Tune with representative images from controls and treatments, retain overlays, and quantify failure cases.
 
 Use `hca_segment.py` only after channel and z selection are explicit. It presents `threshold`, `cellpose`, and `stardist` through the same label-TIFF output contract; install the matching optional extra before invoking a model engine. Run `hca_runner.py` with the well plan for atomic retries, resumability, structured errors, provenance, and bounded CPU/GPU scheduling.
 

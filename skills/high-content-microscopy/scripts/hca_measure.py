@@ -26,7 +26,7 @@ def main() -> int:
         raise SystemExit("labels must be a two-dimensional label image")
     image = tifffile.imread(args.image) if args.image else None
     rows = []
-    for label in range(1, int(labels.max()) + 1):
+    for label in (int(value) for value in numpy.unique(labels) if value > 0):
         mask = labels == label
         row = {"object_id": label, "area_px": int(mask.sum())}
         if image is not None:

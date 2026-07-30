@@ -19,8 +19,16 @@ def channel_for_role(config: dict, role: str) -> int:
     return matches[0]
 
 
-def run(command: list[str]) -> None:
-    subprocess.run(command, check=True)
+def run(command: list[str], log_path: Path) -> None:
+    """Run a child stage without flooding the agent transcript; retain its logs per field."""
+    result = subprocess.run(command, check=False, capture_output=True, text=True)
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write("$ " + " ".join(command) + "\n")
+        handle.write(result.stdout)
+        handle.write(result.stderr)
+        handle.write("\n")
+    if result.returncode:
+        raise RuntimeError(f"stage failed ({result.returncode}); inspect {log_path}")
 
 
 def main() -> int:
@@ -51,9 +59,10 @@ def main() -> int:
             raise RuntimeError(f"missing nuclear channel in {site}, t{timepoint}, z{z}")
         field_dir = args.output_dir / f"{site}-t{timepoint}-z{z}"
         field_dir.mkdir(parents=True, exist_ok=True)
+        log_path = field_dir / "pipeline.log"
         nuclear_image = source_root / by_channel[nucleus_channel]["path"]
         nuclei_labels = field_dir / "nuclei-labels.tif"
-        run([sys.executable, str(script_dir / "hca_segment.py"), "--image", str(nuclear_image), "--engine", nucleus["engine"], "--model", nucleus.get("model", "nuclei"), "--output", str(nuclei_labels)])
+        run([sys.executable, str(script_dir / "hca_segment.py"), "--image", str(nuclear_image), "--engine", nucleus["engine"], "--model", nucleus.get("model", "nuclei"), "--output", str(nuclei_labels)], log_path)
         field_result = {"site": site, "timepoint": timepoint, "z": z, "nuclei_labels": str(nuclei_labels)}
         if cell.get("enabled"):
             if cell_channel not in by_channel:
@@ -62,11 +71,11 @@ def main() -> int:
             command = [sys.executable, str(script_dir / "hca_segment.py"), "--image", str(cell_image), "--engine", cell["engine"], "--model", cell.get("model", "cyto3"), "--output", str(cell_labels)]
             if cell.get("use_nuclear_image"):
                 command.extend(["--nuclear-image", str(nuclear_image)])
-            run(command)
+            run(command, log_path)
             field_result["cell_labels"] = str(cell_labels)
             if relationship.get("enabled"):
                 relation_dir = field_dir / "relationship"
-                run([sys.executable, str(script_dir / "hca_relate.py"), "--nuclei", str(nuclei_labels), "--cells", str(cell_labels), "--output-dir", str(relation_dir), "--min-overlap", str(relationship.get("min_overlap", 0.5))])
+                run([sys.executable, str(script_dir / "hca_relate.py"), "--nuclei", str(nuclei_labels), "--cells", str(cell_labels), "--output-dir", str(relation_dir), "--min-overlap", str(relationship.get("min_overlap", 0.5))], log_path)
                 relation = json.loads((relation_dir / "relationships.json").read_text())
                 denominator = max(relation["nuclei"], 1)
                 field_result["relationship"] = relation
@@ -75,9 +84,9 @@ def main() -> int:
                 else:
                     field_result["relationship_qc"] = "passed"
                 for label, image, output in ((nuclei_labels, nuclear_image, field_dir / "nuclei-measurements.json"), (cell_labels, cell_image, field_dir / "cell-measurements.json"), (relation_dir / "cytoplasm-by-cell.tif", cell_image, field_dir / "cytoplasm-measurements.json")):
-                    run([sys.executable, str(script_dir / "hca_measure.py"), "--labels", str(label), "--image", str(image), "--output", str(output)])
+                    run([sys.executable, str(script_dir / "hca_measure.py"), "--labels", str(label), "--image", str(image), "--output", str(output)], log_path)
                 if segmentation.get("overlays"):
-                    run([sys.executable, str(script_dir / "hca_overlay.py"), "--image", str(nuclear_image), "--labels", str(nuclei_labels), "--output", str(field_dir / "nuclei-overlay.tif")])
+                    run([sys.executable, str(script_dir / "hca_overlay.py"), "--image", str(nuclear_image), "--labels", str(nuclei_labels), "--output", str(field_dir / "nuclei-overlay.tif")], log_path)
         results.append(field_result)
     failed = [entry for entry in results if entry.get("relationship_qc") == "failed"]
     args.output_dir.mkdir(parents=True, exist_ok=True)

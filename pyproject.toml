@@ -1,15 +1,22 @@
 [project]
 name = "pi-high-content-microscopy"
 version = "0.1.0"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 dependencies = []
 
 [project.optional-dependencies]
 ome = ["tifffile>=2024.5"]
 bioformats = ["bioio>=3"]
-qc = ["numpy>=1.26", "tifffile>=2024.5"]
+qc = ["numpy>=1.26", "scipy>=1.10", "tifffile>=2024.5"]
 cellpose = ["cellpose>=3", "numpy>=1.26", "tifffile>=2024.5"]
 stardist = ["stardist>=0.9", "csbdeep>=0.8", "numpy>=1.26", "tifffile>=2024.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = []
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

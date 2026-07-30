@@ -46,6 +46,8 @@ Install only the reader or analysis engine needed for the assay: `pip install '.
 
 Pi should coordinate the workflow: discover plates, capture the assay contract, build and validate manifests, prepare seeded QC samples, request human review of raw images and overlays, then run a reviewed pipeline. Batch plans process one plate at a time and parallelize wells only within that plate. `hca_share.py` produces a portable zip of results, review decisions, configurations, and provenance while excluding source TIFFs.
 
+After `pi install`, start a new Pi session so package skills are discovered. In the session, resolve the installed `SKILL.md` directory and run `hca_doctor.py` before the workflow. The agent should keep stage logs in the well output directory and present the compact `pipeline-summary.json`, QC report, review decision, and relationship QC counts rather than streaming image-processing logs.
+
 For cell-level assays, nuclear and cell masks are separate products. `hca_relate.py` maps nuclei to cells by pixel overlap and only subtracts assigned nuclei from the corresponding cell to form cytoplasm. It reports orphan nuclei, low-overlap assignments, and ties instead of forcing a biological relationship.
 
 The assay configuration can activate this graph directly: `nucleus` segmentation, `cell` segmentation using an optional nuclear channel, `relationship` QC and cytoplasm derivation, overlays, then independent measurements. `hca_pipeline.py` executes it per well field; the Pi agent should use the configured pipeline rather than choose unrecorded defaults.

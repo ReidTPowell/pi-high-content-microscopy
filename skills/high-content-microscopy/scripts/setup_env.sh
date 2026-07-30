@@ -21,4 +21,5 @@ python3 -m venv "$env_path"
 "$env_path/bin/python" -m pip install --upgrade pip
 repo_root=$(cd "$(dirname "$0")/../../.." && pwd)
 "$env_path/bin/python" -m pip install -e "${repo_root}[${extras}]"
+"$env_path/bin/python" -c "import numpy, tifffile; print('Imaging runtime ready')" 2>/dev/null || true
 printf 'Environment ready: %s\n' "$env_path"
