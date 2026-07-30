@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["name", "input", "channels", "analysis"],
+  "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "input": {"type": "object", "required": ["adapter"]},
+    "channels": {"type": "object", "minProperties": 1},
+    "analysis": {"type": "object", "required": ["unit_of_analysis"]},
+    "controls": {"type": "object"}
+  }
+}

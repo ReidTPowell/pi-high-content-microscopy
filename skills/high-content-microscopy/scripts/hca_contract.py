@@ -1,0 +1,67 @@
+"""Shared, dependency-free contract and provenance helpers."""
+from __future__ import annotations
+
+import hashlib
+import json
+import platform
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+REQUIRED_RECORD_FIELDS = {"path", "format", "adapter", "plate", "well", "row", "column", "site", "timepoint", "channel", "z", "prefix"}
+
+
+def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def validate_record(record: dict[str, Any]) -> list[str]:
+    errors = [f"missing {field}" for field in sorted(REQUIRED_RECORD_FIELDS - record.keys())]
+    if not isinstance(record.get("path"), str) or not record.get("path"):
+        errors.append("path must be a non-empty string")
+    for field in ("column", "timepoint", "channel", "z"):
+        value = record.get(field)
+        if value is not None and (not isinstance(value, int) or value < (1 if field == "column" else 0)):
+            errors.append(f"{field} must be null or a valid non-negative integer")
+    return errors
+
+
+def validate_config(config: dict[str, Any]) -> list[str]:
+    errors = []
+    for field in ("name", "input", "channels", "analysis"):
+        if field not in config:
+            errors.append(f"configuration missing {field}")
+    if isinstance(config.get("input"), dict) and not config["input"].get("adapter"):
+        errors.append("input.adapter is required")
+    if isinstance(config.get("analysis"), dict) and not config["analysis"].get("unit_of_analysis"):
+        errors.append("analysis.unit_of_analysis is required")
+    return errors
+
+
+def gpu_inventory() -> list[dict[str, int]]:
+    try:
+        output = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"], text=True
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return []
+    return [{"index": int(row.split(",")[0]), "free_mib": int(row.split(",")[1])} for row in output.splitlines() if row]
+
+
+def provenance(manifest: Path, config: Path | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "manifest": str(manifest.resolve()), "manifest_sha256": sha256(manifest),
+        "python": sys.version, "platform": platform.platform(), "gpus": gpu_inventory(),
+    }
+    if config:
+        payload.update({"config": str(config.resolve()), "config_sha256": sha256(config)})
+    return payload

@@ -51,6 +51,21 @@ class ManifestTests(unittest.TestCase):
             )
             self.assertEqual(MODULE.build_manifest(root)[0]["acquisition"]["FovUuid"], "local-id")
 
+    def test_discovers_separate_acquisitions_in_a_batch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for plate in ("plate-one", "plate-two"):
+                metadata = root / plate / "experiment/image_metadata_1.csv"
+                metadata.parent.mkdir(parents=True)
+                metadata.write_text("ImageFileName\n", encoding="utf-8")
+            self.assertEqual(MODULE.discover_plates(root), [root / "plate-one", root / "plate-two"])
+
+    def test_routes_vendor_files_without_inventing_coordinates(self):
+        record = MODULE.generic_record(Path("field.nd2"), Path("."))
+        self.assertEqual(record["adapter"], "bioio-required")
+        self.assertEqual(record["format"], "nd2")
+        self.assertIsNone(record["well"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,14 @@
   "description": "Configuration-first high-content microscopy analysis skill for Pi.",
   "license": "MIT",
   "keywords": ["pi-package", "pi", "microscopy", "high-content-screening", "HCS"],
-  "files": ["skills", "README.md", "LICENSE"],
+  "files": [
+    "skills/high-content-microscopy/SKILL.md",
+    "skills/high-content-microscopy/configs",
+    "skills/high-content-microscopy/references",
+    "skills/high-content-microscopy/schemas",
+    "skills/high-content-microscopy/scripts/*.py",
+    "README.md", "LICENSE", "pyproject.toml"
+  ],
   "pi": {
     "skills": ["./skills"]
   },

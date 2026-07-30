@@ -8,19 +8,28 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from hca_contract import validate_config, validate_record
+
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def validate(records: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    contract_errors = validate_config(config)
+    valid_records = []
+    for index, record in enumerate(records):
+        record_errors = validate_record(record)
+        contract_errors.extend(f"record {index}: {error}" for error in record_errors)
+        if not record_errors:
+            valid_records.append(record)
     expected = config.get("input", {}).get("expected_channels")
     expected_z = config.get("input", {}).get("expected_z_planes")
     groups: dict[tuple[Any, ...], set[int]] = defaultdict(set)
     z_groups: dict[tuple[Any, ...], set[int]] = defaultdict(set)
     generic = 0
-    for record in records:
-        if record["adapter"] == "generic-tiff":
+    for record in valid_records:
+        if record["adapter"] in {"generic-tiff", "bioio-required"}:
             generic += 1
         key = (record["plate"], record["well"], record["site"], record["timepoint"], record["z"])
         if record["channel"] is not None:
@@ -45,7 +54,8 @@ def validate(records: list[dict[str, Any]], config: dict[str, Any]) -> dict[str,
     return {
         "images": len(records), "generic_coordinate_records": generic,
         "incomplete_channel_fields": missing_channels, "incomplete_z_fields": missing_z,
-        "ok": not missing_channels and not missing_z,
+        "contract_errors": contract_errors,
+        "ok": not missing_channels and not missing_z and not contract_errors,
     }
 
 

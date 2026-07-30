@@ -15,7 +15,7 @@ HCSAI_PATTERN = re.compile(
     r"(?P<site>s\d+)_w(?P<channel>\d+)_z(?P<z>\d+)\.(?:tif|tiff)$",
     re.IGNORECASE,
 )
-IMAGE_EXTENSIONS = {".tif", ".tiff", ".ome.tif", ".ome.tiff"}
+IMAGE_EXTENSIONS = {".tif", ".tiff", ".ome.tif", ".ome.tiff", ".czi", ".nd2", ".lif"}
 
 
 def hcsai_record(path: Path, root: Path) -> dict[str, Any] | None:
@@ -33,9 +33,14 @@ def hcsai_record(path: Path, root: Path) -> dict[str, Any] | None:
 
 
 def generic_record(path: Path, root: Path) -> dict[str, Any]:
+    suffix = path.suffix.lower()
+    format_name = {".czi": "czi", ".nd2": "nd2", ".lif": "lif"}.get(
+        suffix, "ome-tiff" if ".ome." in path.name.lower() else "tiff"
+    )
     return {
-        "path": str(path.relative_to(root)), "format": "ome-tiff" if ".ome." in path.name.lower() else "tiff",
-        "adapter": "generic-tiff", "plate": None, "well": None, "row": None, "column": None,
+        "path": str(path.relative_to(root)), "format": format_name,
+        "adapter": "bioio-required" if format_name in {"czi", "nd2", "lif", "ome-tiff"} else "generic-tiff",
+        "plate": None, "well": None, "row": None, "column": None,
         "site": None, "timepoint": None, "channel": None, "z": None, "prefix": path.stem,
     }
 

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["path", "format", "adapter", "plate", "well", "row", "column", "site", "timepoint", "channel", "z", "prefix"],
+  "properties": {
+    "path": {"type": "string", "minLength": 1},
+    "format": {"type": "string"}, "adapter": {"type": "string"}, "plate": {"type": ["string", "null"]},
+    "well": {"type": ["string", "null"]}, "row": {"type": ["string", "null"]},
+    "column": {"type": ["integer", "null"], "minimum": 1}, "site": {"type": ["string", "null"]},
+    "timepoint": {"type": ["integer", "null"], "minimum": 0}, "channel": {"type": ["integer", "null"], "minimum": 0},
+    "z": {"type": ["integer", "null"], "minimum": 0}, "prefix": {"type": "string"}
+  }
+}
