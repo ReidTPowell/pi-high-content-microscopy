@@ -53,3 +53,36 @@ For cell-level assays, nuclear and cell masks are separate products. `hca_relate
 The assay configuration can activate this graph directly: `nucleus` segmentation, `cell` segmentation using an optional nuclear channel, `relationship` QC and cytoplasm derivation, overlays, then independent measurements. `hca_pipeline.py` executes it per well field; the Pi agent should use the configured pipeline rather than choose unrecorded defaults.
 
 For a plate acquisition with barcode `70126`, the default analysis root is `70126_piHCA` beside the barcode-level raw directory. A single-well pipeline writes to `70126_piHCA/wells/A01`; explicit `--output-dir` values override this behavior.
+
+## Workstation deployment
+
+For managed GPU workstations, Pi is the operator-facing control plane: it prepares a reviewed plan, explicitly submits a plate job, monitors the queue, and reports compact results. It does not silently discover or start analyses. Each workstation uses the same locked environment, created once per release:
+
+```sh
+skills/high-content-microscopy/scripts/setup_env.sh \
+  --env /opt/pi-hca/envs/0.1.0 --extras qc,cellpose \
+  --lock-file /opt/pi-hca/envs/0.1.0/runtime-lock.json
+```
+
+Initialize a shared queue directory once. Its SQLite file is an audit index; job requests and worker results are separately published as atomic JSON artifacts. Keep all queue administration on a filesystem with reliable locking. Do not put the SQLite file on an unreliable network mount.
+
+```sh
+QUEUE=/shared/pi-hca-queue
+python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" init
+python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" register-worker --worker-id gpu-ws-01
+python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" publish-config \
+  --config assay.json --review approved-review.json --operator trained-operator
+```
+
+Publishing requires an approved review with a named reviewer. Submit each prepared plate explicitly, then run the dispatcher from a registered workstation. It claims at most the requested number of whole-plate jobs; each job delegates bounded parallel wells to `hca_runner.py`.
+
+```sh
+python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" submit \
+  --plan well-jobs/plan.json --output-dir /data/70126_piHCA --config-id cfg-... \
+  --runtime-lock /opt/pi-hca/envs/0.1.0/runtime-lock.json --operator trained-operator --workers 2
+python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" dispatch \
+  --worker-id gpu-ws-01 --max-jobs 1 \
+  --command 'python3 /absolute/path/hca_pipeline.py --well-manifest {manifest} --config {config} --source-root /data/70126 --output-dir {output}'
+```
+
+Use `status`, `report`, `cancel --job-id`, and `retry --job-id` for operations. All queue results, copied published configurations, run provenance, QC/review decisions, and analysis artifacts remain shareable with `hca_share.py` while raw TIFFs remain excluded.

@@ -1,6 +1,6 @@
 ---
 name: high-content-microscopy
-description: Plan, validate, and analyze high-content microscopy assays with Pi. Use for HCS, high-content imaging, plate-based microscopy, HCSai or MetaXpress exports, OME-TIFF, Cellpose or StarDist segmentation, image quality control, phenotypic profiling, dose response, and microscopy-derived assay statistics. Build an explicit image manifest and assay configuration before processing data; do not assume a plate size, channel role, segmentation model, or instrument export format.
+description: Plan, validate, deploy, and analyze high-content microscopy assays with Pi. Activate this skill whenever the user requests piHCA, Pi HCA, high-content imaging, HCS, plate-based microscopy, HCSai or MetaXpress exports, OME-TIFF, Cellpose or StarDist segmentation, image quality control, phenotypic profiling, dose response, or microscopy-derived assay statistics. On piHCA requests, use this skill before taking analysis actions. Build an explicit image manifest and assay configuration before processing data; do not assume a plate size, channel role, segmentation model, or instrument export format.
 ---
 
 # High-Content Microscopy
@@ -25,6 +25,8 @@ python3 scripts/hca_preflight.py --config <assay.json>
 python3 scripts/hca_doctor.py --config <assay.json> --source-root <plate-root>
 scripts/setup_env.sh --env .venv-hca --extras qc,cellpose
 ```
+
+For any request containing `piHCA` or `Pi HCA`, activate this skill and begin with the established contract or queue status rather than choosing an unrelated analysis tool. At full scale, Pi must submit only explicit operator requests through `hca_queue.py`; it should report `status` or `report` between requests and not auto-discover or auto-start acquisitions.
 
 ## Choose analysis modules deliberately
 

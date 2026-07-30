@@ -26,6 +26,14 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    """Publish JSON only after the complete artifact has been written."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
 def barcode_for_input(input_root: Path) -> str | None:
     """Read a barcode from the acquisition metadata without relying on folder names."""
     for path in sorted(input_root.rglob("*.jdce")) + sorted(input_root.glob("*.mxprotocol")):
@@ -80,11 +88,13 @@ def gpu_inventory() -> list[dict[str, int]]:
     return [{"index": int(row.split(",")[0]), "free_mib": int(row.split(",")[1])} for row in output.splitlines() if row]
 
 
-def provenance(manifest: Path, config: Path | None = None) -> dict[str, Any]:
+def provenance(manifest: Path, config: Path | None = None, runtime_lock: Path | None = None) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "manifest": str(manifest.resolve()), "manifest_sha256": sha256(manifest),
         "python": sys.version, "platform": platform.platform(), "gpus": gpu_inventory(),
     }
     if config:
         payload.update({"config": str(config.resolve()), "config_sha256": sha256(config)})
+    if runtime_lock:
+        payload.update({"runtime_lock": str(runtime_lock.resolve()), "runtime_lock_sha256": sha256(runtime_lock)})
     return payload

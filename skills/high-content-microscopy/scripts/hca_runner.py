@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from hca_contract import gpu_inventory, provenance
+from hca_runtime import verify
 
 
 def run_job(job: dict, command: str, output_root: Path, retries: int, gpus: list[int], config: Path | None = None) -> dict:
@@ -50,6 +51,7 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--command", required=True, help="Shell template using {well}, {manifest}, {output}, and {gpu}")
     parser.add_argument("--config", type=Path, help="Assay config exposed to the command as {config} and recorded in provenance")
+    parser.add_argument("--runtime-lock", type=Path, help="Require the current environment to match this captured runtime lock")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--retries", type=int, default=1)
     parser.add_argument("--gpus", default="auto", help="auto, none, or comma-separated GPU IDs")
@@ -65,9 +67,13 @@ def main() -> int:
         gpus = [int(value) for value in args.gpus.split(",")]
     if args.workers < 1:
         parser.error("--workers must be at least 1")
+    if args.runtime_lock:
+        runtime_ready, runtime_errors = verify(args.runtime_lock)
+        if not runtime_ready:
+            parser.error("runtime lock verification failed: " + "; ".join(runtime_errors))
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=True)
-    (output / "provenance.json").write_text(json.dumps(provenance(Path(plan["source_manifest"]), args.config), indent=2) + "\n")
+    (output / "provenance.json").write_text(json.dumps(provenance(Path(plan["source_manifest"]), args.config, args.runtime_lock), indent=2) + "\n")
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
         futures = [executor.submit(run_job, job, args.command, output, args.retries, gpus, args.config) for job in plan["jobs"]]
         results = [future.result() for future in as_completed(futures)]
