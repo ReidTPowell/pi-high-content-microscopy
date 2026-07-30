@@ -52,6 +52,62 @@ For cell-level assays, nuclear and cell masks are separate products. `hca_relate
 
 The assay configuration can activate this graph directly: `nucleus` segmentation, `cell` segmentation using an optional nuclear channel, `relationship` QC and cytoplasm derivation, overlays, then independent measurements. `hca_pipeline.py` executes it per well field; the Pi agent should use the configured pipeline rather than choose unrecorded defaults.
 
+## Guided Pilot And Filtering
+
+Say `piHCA` to begin expert intake. Pi first inspects the file structure and then asks for the biological endpoint, controls, channel roles, primary/secondary objects, and the expected morphology. It should offer a non-destructive preconfiguration packet rather than starting a batch run:
+
+```sh
+python3 skills/high-content-microscopy/scripts/hca_preconfigure.py \
+  --input /path/to/one-acquisition --config draft-assay.json
+```
+
+The packet includes a manifest, validation report, well plan, seeded QC sample, pending review, and operator questions. Run one pilot well into a new analysis root. The supported pipeline retains `nuclei-raw-labels.tif` and `cell-raw-labels.tif`, filters them into final labels, then performs relationship assignment and measurement. Configure human-reviewed size and mean-intensity limits per object type:
+
+```json
+"filter": {
+  "min_area_px": 50,
+  "max_area_px": null,
+  "min_intensity_mean": 400,
+  "max_intensity_mean": null
+}
+```
+
+Every run writes `nuclei-filter.json` and `cell-filter.json`, preserving the source label, measured area/intensity, accept/reject decision, and exclusion reason. A filter is part of the reviewed assay configuration, not an unrecorded per-well adjustment.
+
+Direct `hca_pipeline.py` runs reject a nonempty output directory by default. Start every pilot/configuration revision in a new result root; `--allow-overwrite` is an explicit recovery-only override. Queue and runner execution retain their existing atomic staging behavior.
+
+For a faster first tuning pass, generate conservative, review-required candidates from a pilot audit:
+
+```sh
+python3 skills/high-content-microscopy/scripts/hca_filter_tune.py \
+  --audit pilot/wells/A01/s0-t0-z0/nuclei-filter.json \
+  --output pilot/nuclei-filter-candidates.json
+```
+
+Candidates list predicted removals and label centroids. They are not auto-approved or applied to a batch; Pi must review them with the operator and write accepted values into a new assay-config version.
+
+Cellpose model settings are tuned before filtering. A stage can declare `diameter`, `gpu`, and a `cellpose` block containing `flow_threshold`, `cellprob_threshold`, `normalize`, `tile_overlap`, `niter`, `min_size`, and `augment`. Compare a bounded set of segmentation candidates on a pilot image:
+
+```sh
+python3 skills/high-content-microscopy/scripts/hca_cellpose_tune.py \
+  --image /path/to/dapi.tif --model nuclei --gpu \
+  --diameters auto,18,22 --flow-thresholds 0.3,0.4 \
+  --cellprob-thresholds -1,0 --output-dir pilot/nuclei-cellpose-candidates
+```
+
+For cells, pass `--nuclear-image /path/to/dapi.tif` and the configured boundary image. The tool writes overlays, measurements, and `candidates.json`; it does not choose or publish a winner.
+
+When Pi is connected to an image-capable model, make the visual assessment reproducible instead of relying on narrative chat history:
+
+```sh
+python3 skills/high-content-microscopy/scripts/hca_vision_review.py template \
+  --candidates pilot/nuclei-cellpose-candidates/candidates.json \
+  --filter-audit pilot/wells/A01/s0-t0-z0/nuclei-filter.json \
+  --output pilot/vision-review.pending.json
+```
+
+Pi completes the template after inspecting each overlay against its raw image, then runs `finalize` to produce ranked, acceptable candidates. The artifact records the vision model/reviewer, scores, observed split/merge/false-object errors, and filter recommendations. It is intentionally not sufficient to publish a config without named human approval.
+
 For a plate acquisition with barcode `70126`, the default analysis root is `70126_piHCA` beside the barcode-level raw directory. A single-well pipeline writes to `70126_piHCA/wells/A01`; explicit `--output-dir` values override this behavior.
 
 ## Workstation deployment

@@ -5,6 +5,25 @@ description: Plan, validate, deploy, and analyze high-content microscopy assays 
 
 # High-Content Microscopy
 
+## PiHCA expert intake
+
+When a user says `piHCA`, `Pi HCA`, or asks to analyze microscopy data, begin as an assay expert, not a command runner:
+
+1. Inspect the supplied root read-only. State whether it is a batch or an acquisition, enumerate acquisitions, image counts, wells/sites/channels/z/timepoints, and identify recoverable metadata.
+2. Ask only the facts the files cannot establish: biological question and endpoint, controls/plate map, channel roles, primary object, secondary object, and whether the secondary boundary should be guided by the primary raw image.
+3. Offer a preconfiguration packet for one acquisition. It creates the manifest, validation, well plan, seeded QC sample, and pending review in one command; it never launches a plate run.
+4. Run a representative pilot well only after the draft config is confirmed. Preserve raw masks, inspect primary, secondary, and relationship overlays, then ask the reviewer to identify true objects and removable debris/dim objects.
+5. Translate that review into explicit per-stage `filter` limits for area and mean intensity. Explain that limits are retained in the versioned config and apply before relational segmentation and measurements.
+6. Require an approved review before publishing the config or submitting a plate. Do not reuse, overwrite, or aggregate a previous analysis root for a new parameter set.
+
+Use the preconfiguration command after choosing a draft profile:
+
+```sh
+python3 scripts/hca_preconfigure.py --input <one-acquisition> --config <draft-assay.json>
+```
+
+The resulting `operator-questions.json` is the required intake and the `review.pending.json` is the decision record. For a multi-plate root, first discover plate roots; preconfigure one acquisition at a time.
+
 ## Establish the analysis contract
 
 1. If a supplied directory contains multiple acquisitions, discover plate roots first; never flatten a batch into one plate manifest.
@@ -40,13 +59,21 @@ Select segmentation based on the biological object and image evidence: nuclei, w
 
 Use `hca_segment.py` only after channel and z selection are explicit. It presents `threshold`, `cellpose`, and `stardist` through the same label-TIFF output contract; install the matching optional extra before invoking a model engine. Run `hca_runner.py` with the well plan for atomic retries, resumability, structured errors, provenance, and bounded CPU/GPU scheduling.
 
+The configured pipeline always preserves `*-raw-labels.tif` and writes filtered `*-labels.tif`. Configure `analysis.segmentation.nucleus.filter` and `analysis.segmentation.cell.filter` with reviewed `min_area_px`, `max_area_px`, `min_intensity_mean`, and `max_intensity_mean` values. `hca_filter.py` writes object-level audits naming every excluded label and reason. Filtered nuclei and cells, not raw masks, are related and measured. The primary nuclear raw image may guide Cellpose secondary-cell segmentation with `use_nuclear_image`; this is distinct from mask-to-mask relationship assignment.
+
+For pilot optimization, run `hca_filter_tune.py --audit <nuclei-or-cell-filter.json> --output <candidate.json>`. It calculates conservative distribution-based candidates and identifies every predicted exclusion by source label and centroid. Pi must present this as a review aid, inspect the corresponding overlays with the operator, and update a new versioned config only after confirmation.
+
+Tune Cellpose boundary decisions separately from post-segmentation filtering. The stage `cellpose` block supports `flow_threshold`, `cellprob_threshold`, `normalize`, `tile_overlap`, `niter`, `min_size`, and `augment`; `diameter` and `gpu` remain stage-level values. Use `hca_cellpose_tune.py` on one pilot image with a bounded grid of diameter, flow, and cell-probability values. For cell boundaries, pass the same raw nuclear image used by the configured `use_nuclear_image` workflow. Review candidate overlays before placing selected parameters in the versioned config. Never select a candidate solely because it maximizes the object count.
+
+When an image-capable model is available, Pi should perform structured vision QC, not merely describe images informally. Run `hca_vision_review.py template --candidates <candidates.json> --filter-audit <audit.json> --output <vision-review.json>`, inspect every referenced overlay against its raw image, complete scores and biological acceptability in the JSON, then run `finalize`. The final artifact ranks acceptable candidates and preserves the model/reviewer identity, observations, proposed filters, and uncertainty. It remains a proposal until a named human approves the versioned assay config.
+
 Use `hca_measure.py` after segmentation. It takes label TIFFs and optional intensity images, so morphology and intensity measurements do not depend on how labels were generated. Join its output to plate and treatment metadata only through manifest identifiers.
 
 For cell assays, make relational segmentation explicit. Generate nuclei from the nuclear channel and cells from the boundary/cytoplasm channel, preferably supplying the nuclear image as `--nuclear-image` to a cell-boundary model. Run `hca_relate.py --nuclei <nuclear-labels> --cells <cell-labels> --output-dir <relationship-output>`. It assigns each nucleus by maximal overlap, rejects low-overlap and tied assignments, creates an assigned-nuclei label image, and derives cytoplasm per cell by subtracting assigned nuclei. Review orphan and ambiguous counts before interpreting cytoplasmic measurements.
 
 Use `hca_batch.py` for batch roots: it processes plates sequentially and creates bounded parallel-well plans within each plate. Use `hca_share.py` to package manifests, configurations, QC/review reports, provenance, tabular outputs, and overlays without raw microscopy TIFFs.
 
-Run the configured pipeline with `hca_pipeline.py --well-manifest <well.jsonl> --config <assay.json> --source-root <plate-root>`. By default it writes `<Barcode>_piHCA/wells/<well>` beside the barcode-level raw input folder; use `--output-dir` only to override this. For plate-scale parallel execution, pass the same config to `hca_runner.py --config <assay.json>` and use a command template containing `{manifest}`, `{output}`, and `{config}`. The pipeline returns nonzero if relational QC exceeds configured orphan or ambiguity thresholds, preventing invalid fields from being aggregated silently.
+Run the configured pipeline with `hca_pipeline.py --well-manifest <well.jsonl> --config <assay.json> --source-root <plate-root>`. By default it writes `<Barcode>_piHCA/wells/<well>` beside the barcode-level raw input folder; use `--output-dir` only to select a new analysis root. Direct pipeline runs reject nonempty outputs unless `--allow-overwrite` is stated deliberately. For plate-scale parallel execution, pass the same config to `hca_runner.py --config <assay.json>` and use a command template containing `{manifest}`, `{output}`, and `{config}`. The pipeline returns nonzero if relational QC exceeds configured orphan or ambiguity thresholds, preventing invalid fields from being aggregated silently.
 
 At measurement time, report object-level data, field-level summaries, and well-level summaries separately. Preserve identifiers for plate, well, field/site, timepoint, z-plane or projection, channel, and original file. Normalize only with stated reference populations and preserve raw measurements.
 

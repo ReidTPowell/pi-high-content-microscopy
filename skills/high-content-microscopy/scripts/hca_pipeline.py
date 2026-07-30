@@ -31,12 +31,43 @@ def run(command: list[str], log_path: Path) -> None:
         raise RuntimeError(f"stage failed ({result.returncode}); inspect {log_path}")
 
 
+def append_segmentation_options(command: list[str], stage: dict) -> list[str]:
+    if stage.get("diameter") is not None:
+        command.extend(["--diameter", str(stage["diameter"])])
+    if stage.get("gpu"):
+        command.append("--gpu")
+    if stage.get("engine") == "cellpose":
+        options = stage.get("cellpose", {})
+        flags = {"flow_threshold": "--flow-threshold", "cellprob_threshold": "--cellprob-threshold",
+                 "min_size": "--min-size", "niter": "--niter", "tile_overlap": "--tile-overlap"}
+        for key, flag in flags.items():
+            if options.get(key) is not None:
+                command.extend([flag, str(options[key])])
+        if options.get("augment"):
+            command.append("--augment")
+        if options.get("normalize") is False:
+            command.append("--no-normalize")
+    return command
+
+
+def filter_command(script_dir: Path, raw_labels: Path, output_labels: Path, audit: Path, image: Path | None, criteria: dict) -> list[str]:
+    command = [sys.executable, str(script_dir / "hca_filter.py"), "--labels", str(raw_labels), "--output", str(output_labels), "--audit", str(audit)]
+    if image is not None:
+        command.extend(["--image", str(image)])
+    flags = {"min_area_px": "--min-area-px", "max_area_px": "--max-area-px", "min_intensity_mean": "--min-intensity-mean", "max_intensity_mean": "--max-intensity-mean"}
+    for key, flag in flags.items():
+        if criteria.get(key) is not None:
+            command.extend([flag, str(criteria[key])])
+    return command
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--well-manifest", required=True, type=Path)
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--output-dir", type=Path, help="Defaults to <Barcode>_piHCA/wells/<well>")
     parser.add_argument("--source-root", type=Path, help="Root used to resolve manifest-relative image paths")
+    parser.add_argument("--allow-overwrite", action="store_true", help="Explicitly permit replacement of an existing direct pipeline output")
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     source_value = args.source_root or config.get("input", {}).get("source_root")
@@ -49,6 +80,8 @@ def main() -> int:
         parser.error("well manifest is empty or has no well identifier")
     if args.output_dir is None:
         args.output_dir = default_output_dir(source_root) / "wells" / well
+    if args.output_dir.exists() and any(args.output_dir.iterdir()) and not args.allow_overwrite:
+        parser.error(f"output directory is not empty: {args.output_dir}; select a new analysis root or pass --allow-overwrite deliberately")
     segmentation = config["analysis"]["segmentation"]
     nucleus, cell, relationship = segmentation.get("nucleus", {}), segmentation.get("cell", {}), segmentation.get("relationship", {})
     if not nucleus.get("enabled"):
@@ -66,18 +99,30 @@ def main() -> int:
         field_dir.mkdir(parents=True, exist_ok=True)
         log_path = field_dir / "pipeline.log"
         nuclear_image = source_root / by_channel[nucleus_channel]["path"]
-        nuclei_labels = field_dir / "nuclei-labels.tif"
-        run([sys.executable, str(script_dir / "hca_segment.py"), "--image", str(nuclear_image), "--engine", nucleus["engine"], "--model", nucleus.get("model", "nuclei"), "--output", str(nuclei_labels)], log_path)
-        field_result = {"site": site, "timepoint": timepoint, "z": z, "nuclei_labels": str(nuclei_labels)}
+        raw_nuclei_labels, nuclei_labels = field_dir / "nuclei-raw-labels.tif", field_dir / "nuclei-labels.tif"
+        nucleus_command = [sys.executable, str(script_dir / "hca_segment.py"), "--image", str(nuclear_image), "--engine", nucleus["engine"], "--model", nucleus.get("model", "nuclei"), "--output", str(raw_nuclei_labels)]
+        run(append_segmentation_options(nucleus_command, nucleus), log_path)
+        nucleus_filter = nucleus.get("filter", {})
+        nucleus_filter_image = source_root / by_channel[channel_for_role(config, nucleus_filter.get("intensity_channel_role", nucleus["channel_role"]))]["path"]
+        nucleus_audit = field_dir / "nuclei-filter.json"
+        run(filter_command(script_dir, raw_nuclei_labels, nuclei_labels, nucleus_audit, nucleus_filter_image, nucleus_filter), log_path)
+        field_result = {"site": site, "timepoint": timepoint, "z": z, "nuclei_raw_labels": str(raw_nuclei_labels),
+                        "nuclei_labels": str(nuclei_labels), "nuclei_filter": str(nucleus_audit)}
         if cell.get("enabled"):
             if cell_channel not in by_channel:
                 raise RuntimeError(f"missing cell channel in {site}, t{timepoint}, z{z}")
-            cell_image, cell_labels = source_root / by_channel[cell_channel]["path"], field_dir / "cell-labels.tif"
-            command = [sys.executable, str(script_dir / "hca_segment.py"), "--image", str(cell_image), "--engine", cell["engine"], "--model", cell.get("model", "cyto3"), "--output", str(cell_labels)]
+            cell_image = source_root / by_channel[cell_channel]["path"]
+            raw_cell_labels, cell_labels = field_dir / "cell-raw-labels.tif", field_dir / "cell-labels.tif"
+            command = [sys.executable, str(script_dir / "hca_segment.py"), "--image", str(cell_image), "--engine", cell["engine"], "--model", cell.get("model", "cyto3"), "--output", str(raw_cell_labels)]
             if cell.get("use_nuclear_image"):
                 command.extend(["--nuclear-image", str(nuclear_image)])
-            run(command, log_path)
+            run(append_segmentation_options(command, cell), log_path)
+            cell_filter = cell.get("filter", {})
+            cell_filter_image = source_root / by_channel[channel_for_role(config, cell_filter.get("intensity_channel_role", cell["channel_role"]))]["path"]
+            cell_audit = field_dir / "cell-filter.json"
+            run(filter_command(script_dir, raw_cell_labels, cell_labels, cell_audit, cell_filter_image, cell_filter), log_path)
             field_result["cell_labels"] = str(cell_labels)
+            field_result.update({"cell_raw_labels": str(raw_cell_labels), "cell_filter": str(cell_audit)})
             if relationship.get("enabled"):
                 relation_dir = field_dir / "relationship"
                 run([sys.executable, str(script_dir / "hca_relate.py"), "--nuclei", str(nuclei_labels), "--cells", str(cell_labels), "--output-dir", str(relation_dir), "--min-overlap", str(relationship.get("min_overlap", 0.5))], log_path)
@@ -92,6 +137,7 @@ def main() -> int:
                     run([sys.executable, str(script_dir / "hca_measure.py"), "--labels", str(label), "--image", str(image), "--output", str(output)], log_path)
                 if segmentation.get("overlays"):
                     run([sys.executable, str(script_dir / "hca_overlay.py"), "--image", str(nuclear_image), "--labels", str(nuclei_labels), "--output", str(field_dir / "nuclei-overlay.tif")], log_path)
+                    run([sys.executable, str(script_dir / "hca_overlay.py"), "--image", str(cell_image), "--labels", str(cell_labels), "--output", str(field_dir / "cell-overlay.tif")], log_path)
         results.append(field_result)
     failed = [entry for entry in results if entry.get("relationship_qc") == "failed"]
     args.output_dir.mkdir(parents=True, exist_ok=True)

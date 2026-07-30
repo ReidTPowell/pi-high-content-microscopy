@@ -75,6 +75,21 @@ def validate_config(config: dict[str, Any]) -> list[str]:
         errors.append("input.adapter is required")
     if isinstance(config.get("analysis"), dict) and not config["analysis"].get("unit_of_analysis"):
         errors.append("analysis.unit_of_analysis is required")
+    segmentation = config.get("analysis", {}).get("segmentation", {}) if isinstance(config.get("analysis"), dict) else {}
+    for stage_name in ("nucleus", "cell"):
+        stage = segmentation.get(stage_name, {}) if isinstance(segmentation, dict) else {}
+        criteria = stage.get("filter", {}) if isinstance(stage, dict) else {}
+        if criteria and not isinstance(criteria, dict):
+            errors.append(f"analysis.segmentation.{stage_name}.filter must be an object")
+            continue
+        for key in ("min_area_px", "max_area_px", "min_intensity_mean", "max_intensity_mean"):
+            value = criteria.get(key) if isinstance(criteria, dict) else None
+            if value is not None and (not isinstance(value, (int, float)) or value < 0):
+                errors.append(f"analysis.segmentation.{stage_name}.filter.{key} must be null or a non-negative number")
+        if criteria.get("min_area_px") is not None and criteria.get("max_area_px") is not None and criteria["min_area_px"] > criteria["max_area_px"]:
+            errors.append(f"analysis.segmentation.{stage_name}.filter minimum area exceeds maximum area")
+        if criteria.get("min_intensity_mean") is not None and criteria.get("max_intensity_mean") is not None and criteria["min_intensity_mean"] > criteria["max_intensity_mean"]:
+            errors.append(f"analysis.segmentation.{stage_name}.filter minimum intensity exceeds maximum intensity")
     return errors
 
 

@@ -43,3 +43,10 @@ class ValidationTests(unittest.TestCase):
         records = [record(channel, z) for channel in (0, 1) for z in (0, 1)]
         records.extend([{**entry, "timepoint": 1, "path": entry["path"] + "_t1"} for entry in records])
         self.assertTrue(VALIDATE.validate(records, CONFIG)["ok"])
+
+    def test_rejects_invalid_filter_range(self):
+        config = {**CONFIG, "analysis": {"unit_of_analysis": "well", "segmentation": {
+            "nucleus": {"filter": {"min_area_px": 100, "max_area_px": 10}}}}}
+        report = VALIDATE.validate([record(0, 0), record(1, 0), record(0, 1), record(1, 1)], config)
+        self.assertFalse(report["ok"])
+        self.assertIn("filter minimum area exceeds maximum area", " ".join(report["contract_errors"]))
