@@ -13,7 +13,7 @@ from pathlib import Path
 from hca_contract import gpu_inventory, provenance
 
 
-def run_job(job: dict, command: str, output_root: Path, retries: int, gpus: list[int]) -> dict:
+def run_job(job: dict, command: str, output_root: Path, retries: int, gpus: list[int], config: Path | None = None) -> dict:
     well = job["well"]
     final = output_root / well
     done = final / "complete.json"
@@ -25,7 +25,8 @@ def run_job(job: dict, command: str, output_root: Path, retries: int, gpus: list
                 "error": "staging directory already exists; inspect or archive it before retrying"}
     staging.mkdir(parents=True, exist_ok=True)
     gpu = gpus[hash(well) % len(gpus)] if gpus else None
-    rendered = command.format(well=well, manifest=job["manifest"], output=str(staging), gpu="" if gpu is None else gpu)
+    rendered = command.format(well=well, manifest=job["manifest"], output=str(staging), gpu="" if gpu is None else gpu,
+                               config="" if config is None else str(config))
     env = os.environ.copy()
     if gpu is not None:
         env["CUDA_VISIBLE_DEVICES"] = str(gpu)
@@ -48,6 +49,7 @@ def main() -> int:
     parser.add_argument("--plan", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--command", required=True, help="Shell template using {well}, {manifest}, {output}, and {gpu}")
+    parser.add_argument("--config", type=Path, help="Assay config exposed to the command as {config} and recorded in provenance")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--retries", type=int, default=1)
     parser.add_argument("--gpus", default="auto", help="auto, none, or comma-separated GPU IDs")
@@ -65,9 +67,9 @@ def main() -> int:
         parser.error("--workers must be at least 1")
     output = args.output_dir
     output.mkdir(parents=True, exist_ok=True)
-    (output / "provenance.json").write_text(json.dumps(provenance(Path(plan["source_manifest"])), indent=2) + "\n")
+    (output / "provenance.json").write_text(json.dumps(provenance(Path(plan["source_manifest"]), args.config), indent=2) + "\n")
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = [executor.submit(run_job, job, args.command, output, args.retries, gpus) for job in plan["jobs"]]
+        futures = [executor.submit(run_job, job, args.command, output, args.retries, gpus, args.config) for job in plan["jobs"]]
         results = [future.result() for future in as_completed(futures)]
     (output / "run-summary.json").write_text(json.dumps(sorted(results, key=lambda item: item["well"]), indent=2) + "\n")
     return 0 if all(result["status"] != "failed" for result in results) else 2

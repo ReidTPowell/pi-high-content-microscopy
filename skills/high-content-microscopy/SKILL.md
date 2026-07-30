@@ -40,6 +40,8 @@ For cell assays, make relational segmentation explicit. Generate nuclei from the
 
 Use `hca_batch.py` for batch roots: it processes plates sequentially and creates bounded parallel-well plans within each plate. Use `hca_share.py` to package manifests, configurations, QC/review reports, provenance, tabular outputs, and overlays without raw microscopy TIFFs.
 
+Run the configured pipeline with `hca_pipeline.py --well-manifest <well.jsonl> --config <assay.json> --source-root <plate-root> --output-dir <well-output>`. For plate-scale parallel execution, pass the same config to `hca_runner.py --config <assay.json>` and use a command template containing `{manifest}`, `{output}`, and `{config}`. The pipeline returns nonzero if relational QC exceeds configured orphan or ambiguity thresholds, preventing invalid fields from being aggregated silently.
+
 At measurement time, report object-level data, field-level summaries, and well-level summaries separately. Preserve identifiers for plate, well, field/site, timepoint, z-plane or projection, channel, and original file. Normalize only with stated reference populations and preserve raw measurements.
 
 ## Assay profiles
