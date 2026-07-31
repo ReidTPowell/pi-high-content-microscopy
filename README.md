@@ -15,7 +15,7 @@ Keep exactly one PiHCA package source active. Do not install the GitHub package 
 Set `PIHCA_PYTHON` to the locked analysis interpreter used by Pi. Without it, intake still works and preconfiguration reports missing engines instead of silently using a different environment:
 
 ```sh
-export PIHCA_PYTHON=/opt/pi-hca/envs/0.6.0/bin/python
+export PIHCA_PYTHON=/opt/pi-hca/envs/0.7.0/bin/python
 ```
 
 Create a reproducible image-analysis runtime once per release:
@@ -51,6 +51,38 @@ python3 skills/high-content-microscopy/scripts/hca_manifest.py \
 ```
 
 The bundled HCSai profile is validated against the included directory structure used by MetaXpress-style exports, including the DAPI/TRITC data at `TAMU-IBT_Chetna Dureja`. It is an example, not a global default.
+
+## Assay templates
+
+Run `pihca templates list`, or ask Pi to list templates during assay intake. The bundled executable catalog includes:
+
+| Template ID | Object graph and output |
+| --- | --- |
+| `4x-dapi-nuclei-count` | Nucleus-only counts |
+| `multichannel-cell-intensity` | Nucleus, cell, cytoplasm, multichannel intensity |
+| `cell-morphology` | Cell-only shape measurements |
+| `nuclear-morphology` | Nuclear shape, intensity, and texture |
+| `nuclear-translocation` | Relational nuclear/cytoplasm ratios |
+| `live-dead-viability` | Nuclear live/dead marker measurements |
+| `puncta-per-cell` | Puncta detection and cell parenting |
+| `confluence-area` | Foreground coverage without object separation |
+| `cell-cycle-dna-content` | Integrated DNA and nuclear morphology |
+| `apoptosis-fragmentation` | Condensation, fragmentation, and marker measurements |
+| `colony-organoid-spheroid` | Large-object morphology |
+| `coculture-cell-type` | Relational cells and cell-type marker measurements |
+| `label-free-phenotyping` | Brightfield morphology and pinned OpenPhenom embeddings |
+
+Template channel numbers are starting assumptions, never inferred biology. Each template contains a machine-readable `template.confirm` list that Pi must resolve before preparation. Classification templates intentionally leave biological gates disabled until control-derived thresholds are reviewed.
+
+After controls establish a gate, enable `analysis.classification`, select a measured region, and record ordered rules. Conditions reference the channel role and metric written by `hca_measure.py`; arbitrary intensity defaults are not bundled:
+
+```json
+{"enabled": true, "region": "nucleus", "default": "live", "rules": [
+  {"label": "dead", "match": "all", "conditions": [
+    {"channel_role": "dead_marker", "metric": "mean", "operator": ">=", "threshold": 1250}
+  ]}
+]}
+```
 
 ## Design
 
@@ -152,8 +184,8 @@ For managed GPU workstations, Pi is the operator-facing control plane: it prepar
 
 ```sh
 skills/high-content-microscopy/scripts/setup_env.sh \
-  --env /opt/pi-hca/envs/0.6.0 --extras ome,qc,review,cellpose \
-  --lock-file /opt/pi-hca/envs/0.6.0/runtime-lock.json
+  --env /opt/pi-hca/envs/0.7.0 --extras ome,qc,review,cellpose \
+  --lock-file /opt/pi-hca/envs/0.7.0/runtime-lock.json
 ```
 
 Initialize a shared queue directory once. Its SQLite file is an audit index; job requests and worker results are separately published as atomic JSON artifacts. Keep all queue administration on a filesystem with reliable locking. Do not put the SQLite file on an unreliable network mount.

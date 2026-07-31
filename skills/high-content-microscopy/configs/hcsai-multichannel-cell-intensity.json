@@ -1,0 +1,17 @@
+{
+  "name": "HCS.ai multichannel cellular intensity",
+  "template": {"id": "multichannel-cell-intensity", "family": "intensity", "description": "Nucleus, cell, and cytoplasm intensity across configurable marker channels.", "confirm": ["nuclear and cell-boundary channels", "marker channel identities", "raw versus corrected intensity", "control wells"]},
+  "input": {"adapter": "hcsai", "extensions": [".tif", ".tiff"], "expected_channels": [0, 1, 2, 3], "expected_z_planes": [0]},
+  "channels": {"0": {"name": "DAPI", "role": "nucleus"}, "1": {"name": "Cell boundary", "role": "cell_boundary"}, "2": {"name": "Marker 1", "role": "marker_1"}, "3": {"name": "Marker 2", "role": "marker_2"}},
+  "analysis": {
+    "unit_of_analysis": "cell", "preprocessing": {"background_subtraction": {"enabled": true, "method": "percentile", "percentile": 5.0, "radius": 25}},
+    "qc": {"flag_saturated_pixels": true, "review_focus": true}, "optimization": {"mode": "human", "max_rounds": 3, "vision_acceptance_score": 90, "minimum_heldout_wells": 3, "minimum_heldout_fields": 9},
+    "segmentation": {
+      "nucleus": {"enabled": true, "channel_role": "nucleus", "engine": "cellpose", "model": "nuclei", "gpu": true, "cellpose": {"flow_threshold": 0.4, "cellprob_threshold": 0.0, "normalize": true, "tile_overlap": 0.1}, "filter": {"min_area_px": null, "max_area_px": null, "min_intensity_mean": null, "max_intensity_mean": null}},
+      "cell": {"enabled": true, "channel_role": "cell_boundary", "engine": "cellpose", "model": "cyto3", "use_nuclear_image": true, "gpu": true, "cellpose": {"flow_threshold": 0.4, "cellprob_threshold": 0.0, "normalize": true, "tile_overlap": 0.1}, "filter": {"min_area_px": null, "max_area_px": null, "min_intensity_mean": null, "max_intensity_mean": null}},
+      "relationship": {"enabled": true, "min_overlap": 0.5, "max_orphan_fraction": 0.1, "max_ambiguous_fraction": 0.05}, "overlays": true
+    },
+    "measurements": {"metrics": ["count", "area", "intensity"], "regions": ["nucleus", "cell", "cytoplasm"], "channel_roles": ["nucleus", "marker_1", "marker_2"]},
+    "measurement_image": "corrected", "embedding": {"enabled": false, "provider": "openphenom"}, "reporting": {"enabled": true}
+  }
+}

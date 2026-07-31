@@ -250,9 +250,10 @@ def main() -> int:
             available = {gpu["index"] for gpu in inventory}
             if missing := sorted(set(gpus) - available):
                 raise ValueError(f"requested GPUs are unavailable: {missing}")
+        approved_config = json.loads(Path(release["config"]["path"]).read_text())
         requires_gpu = any(stage.get("enabled") and stage.get("gpu") for stage in
-                           json.loads(Path(release["config"]["path"]).read_text())["analysis"].get("segmentation", {}).values()
-                           if isinstance(stage, dict))
+                           approved_config["analysis"].get("segmentation", {}).values() if isinstance(stage, dict))
+        requires_gpu = requires_gpu or approved_config["analysis"].get("embedding", {}).get("enabled", False)
         if requires_gpu and not gpus:
             raise ValueError("approved configuration requires a GPU, but none passed admission control")
         workers = min(args.workers, len(gpus)) if requires_gpu else args.workers

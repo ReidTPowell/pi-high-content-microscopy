@@ -110,13 +110,20 @@ def main() -> int:
     ], capture_output=True, text=True)
     if runtime_result.returncode:
         raise RuntimeError(runtime_result.stderr.strip() or runtime_result.stdout.strip() or "runtime capture failed")
-    phase = "pilot_segmentation_required" if runtime_ready else "runtime_setup_required"
-    next_action = (
-        "Run a bounded nuclei Cellpose sweep on the paired fields in pilot-fields.json, then review nuclei "
-        "before tuning cell boundaries and relational assignment."
-        if runtime_ready else
-        "Create or select the locked PiHCA Cellpose runtime, then rerun pihca_prepare with PIHCA_PYTHON set to that interpreter."
-    )
+    segmentation = config.get("analysis", {}).get("segmentation", {})
+    if not runtime_ready:
+        phase = "runtime_setup_required"
+        next_action = "Create or select the locked PiHCA runtime, then rerun pihca_prepare with PIHCA_PYTHON set."
+    elif segmentation.get("nucleus", {}).get("enabled"):
+        phase = "pilot_segmentation_required"
+        next_action = "Run a bounded nuclei sweep, review it, then continue through the configured object graph."
+    elif segmentation.get("cell", {}).get("enabled"):
+        phase = "cell_segmentation_required"
+        next_action = "Run a bounded cell sweep on the median pilot field, then review boundaries before filters."
+    else:
+        phase = "heldout_validation_required"
+        next_action = "Run feature-only analysis on held-out fields and review every generated overlay before release."
+    pilot_fields_payload = json.loads(pilot_plan.read_text(encoding="utf-8"))["fields"]
 
     state = {
         "schema_version": 1,
@@ -136,6 +143,8 @@ def main() -> int:
         "plate_map_required_before_biological_analysis": args.plate_map is None,
         "next_action": next_action,
     }
+    if segmentation.get("nucleus", {}).get("enabled") or segmentation.get("cell", {}).get("enabled"):
+        state["pilot_field"] = pilot_fields_payload[min(1, len(pilot_fields_payload) - 1)]
     atomic_write_json(output / "workflow-state.json", state)
     print(json.dumps({
         "status": prepared["status"],

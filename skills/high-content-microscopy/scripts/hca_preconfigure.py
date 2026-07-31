@@ -49,12 +49,13 @@ def main() -> int:
     stages.append(invoke([sys.executable, str(script_dir / "hca_well_plan.py"), "--manifest", str(curated_manifest), "--output-dir", str(plan_dir), "--workers", str(args.workers)]))
     stages.append(invoke([sys.executable, str(script_dir / "hca_qc.py"), "--manifest", str(curated_manifest), "--output", str(qc), "--sample-size", str(args.sample_size), "--seed", str(args.seed)]))
     stages.append(invoke([sys.executable, str(script_dir / "hca_review.py"), "--qc", str(qc), "--output", str(review)], {0, 3}))
-    questions = [
-        "Confirm each channel role and the intended primary object (for example nuclei).",
-        "Confirm the secondary object boundary/cytoplasm channel and whether it should be guided by the primary raw image.",
-        "Provide controls, expected object morphology, and unacceptable objects visible in pilot overlays.",
-        "After the pilot, approve reviewed size and intensity filter limits before batch submission.",
-    ]
+    config = json.loads(args.config.read_text(encoding="utf-8"))
+    questions = [f"Confirm: {item}." for item in config.get("template", {}).get("confirm", [])]
+    questions.extend([
+        "Confirm any channel remapping from the template before optimization.",
+        "Provide controls when classification or biological interpretation depends on them.",
+        "Approve visual segmentation, feature, and exclusion evidence before batch submission.",
+    ])
     (output / "operator-questions.json").write_text(json.dumps({"questions": questions}, indent=2) + "\n", encoding="utf-8")
     ready = all(stage["returncode"] == 0 for stage in stages[:-1])
     status = "pending_human_review" if ready else "runtime_or_model_setup_required"

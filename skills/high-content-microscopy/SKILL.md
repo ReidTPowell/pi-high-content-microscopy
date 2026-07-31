@@ -38,6 +38,7 @@ Use this state order and never restart an earlier phase unless the user changes 
 1. Intake one directory.
 2. Select exactly one acquisition.
 3. Confirm segmentation roles and human or automated optimization.
+   Call `pihca_list_templates` and recommend the closest executable template before collecting its required confirmations.
 4. Call `pihca_prepare`; do not just show its command.
 5. Call `pihca_tune_nuclei`, review every candidate, and use `pihca_accept_review` to version the accepted parameters.
 6. Call `pihca_tune_cells`; review boundaries and relationship QC, then version that decision.

@@ -8,6 +8,10 @@ import json
 from pathlib import Path
 
 
+def relative_artifact(path: Path, root: Path) -> str:
+    return str(path.resolve().relative_to(root.resolve()))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--analysis-root", required=True, type=Path)
@@ -16,6 +20,23 @@ def main() -> int:
     summaries = [json.loads(path.read_text()) for path in sorted(args.analysis_root.rglob("pipeline-summary.json"))]
     fields = [field for summary in summaries for field in summary.get("fields", [])]
     relationship = [field.get("relationship", {}) for field in fields if field.get("relationship")]
+    measurement_paths = [Path(path) for field in fields for path in field.get("measurements", {}).values()]
+    object_counts = {}
+    for field in fields:
+        for region, path in field.get("measurements", {}).items():
+            artifact = Path(path)
+            if artifact.is_file():
+                object_counts[region] = object_counts.get(region, 0) + json.loads(artifact.read_text())["object_count"]
+    confluence = [json.loads(Path(field["confluence"]).read_text())["confluence_fraction"]
+                  for field in fields if field.get("confluence") and Path(field["confluence"]).is_file()]
+    puncta = [json.loads(Path(path).read_text())["object_count"] for field in fields for path in field.get("puncta", [])
+              if Path(path).is_file()]
+    class_counts = {}
+    for field in fields:
+        artifact = Path(field["classification"]) if field.get("classification") else None
+        if artifact and artifact.is_file():
+            for label, count in json.loads(artifact.read_text())["counts"].items():
+                class_counts[label] = class_counts.get(label, 0) + count
     overlay_paths = sorted(args.analysis_root.rglob("*-overlay.tif"))
     figures = []
     for number, path in enumerate(overlay_paths[:48], start=1):
@@ -32,11 +53,16 @@ def main() -> int:
                "cells": sum(item.get("cells", 0) for item in relationship),
                "assigned": sum(item.get("assigned", 0) for item in relationship),
                "orphan": sum(item.get("orphan", 0) for item in relationship),
-               "overlays": [str(path.relative_to(args.analysis_root)) for path in overlay_paths], "figures": figures,
-               "embeddings": [str(path.relative_to(args.analysis_root)) for path in sorted(args.analysis_root.rglob("embedding*.json"))]}
+               "object_counts": object_counts, "puncta": sum(puncta),
+               "classification_counts": class_counts,
+               "mean_confluence": sum(confluence) / len(confluence) if confluence else None,
+               "overlays": [relative_artifact(path, args.analysis_root) for path in overlay_paths], "figures": figures,
+               "measurement_tables": [relative_artifact(path, args.analysis_root) for path in measurement_paths],
+               "embeddings": [relative_artifact(path, args.analysis_root)
+                              for path in sorted(args.analysis_root.rglob("embedding*.json"))]}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "report.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    rows = "".join(f"<tr><th>{html.escape(key.replace('_', ' ').title())}</th><td>{value}</td></tr>" for key, value in payload.items() if not isinstance(value, list))
+    rows = "".join(f"<tr><th>{html.escape(key.replace('_', ' ').title())}</th><td>{html.escape(str(value))}</td></tr>" for key, value in payload.items() if not isinstance(value, list))
     links = "".join(f'<figure><img src="{html.escape(path)}"><figcaption>{html.escape(path)}</figcaption></figure>' for path in figures)
     if not links:
         links = "".join(f'<li>{html.escape(path)}</li>' for path in payload["overlays"][:48]) or '<li>No overlays found</li>'

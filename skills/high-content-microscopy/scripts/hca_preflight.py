@@ -17,6 +17,15 @@ def main() -> int:
     required = {"threshold": ["numpy", "tifffile", "scipy"], "cellpose": ["numpy", "tifffile", "cellpose"], "stardist": ["numpy", "tifffile", "stardist"]}
     missing = {engine: [module for module in required[engine] if importlib.util.find_spec(module) is None] for engine in engines}
     missing = {engine: modules for engine, modules in missing.items() if modules}
+    analysis = config.get("analysis", {})
+    measurements = analysis.get("measurements", [])
+    metrics = measurements.get("metrics", []) if isinstance(measurements, dict) else measurements
+    features = analysis.get("features", {})
+    analysis_modules = [module for module in ("numpy", "scipy", "tifffile")
+                        if (metrics or features.get("puncta") or features.get("confluence", {}).get("enabled"))
+                        and importlib.util.find_spec(module) is None]
+    if analysis_modules:
+        missing["analysis"] = analysis_modules
     payload = {"engines": sorted(engines), "missing": missing, "ok": not missing}
     print(json.dumps(payload, indent=2))
     return 0 if payload["ok"] else 2

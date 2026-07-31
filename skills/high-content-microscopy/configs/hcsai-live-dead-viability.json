@@ -1,0 +1,8 @@
+{
+  "name": "HCS.ai live-dead viability",
+  "template": {"id": "live-dead-viability", "family": "classification", "description": "Nuclear counts with live/dead marker intensities for control-calibrated viability.", "confirm": ["DNA, live, and dead channels", "positive and negative controls", "classification thresholds"]},
+  "input": {"adapter": "hcsai", "extensions": [".tif", ".tiff"], "expected_channels": [0, 1, 2], "expected_z_planes": [0]}, "channels": {"0": {"name": "DNA", "role": "nucleus"}, "1": {"name": "Live marker", "role": "live_marker"}, "2": {"name": "Dead marker", "role": "dead_marker"}},
+  "analysis": {"unit_of_analysis": "cell", "preprocessing": {"background_subtraction": {"enabled": true, "method": "percentile", "percentile": 5.0, "radius": 25}}, "qc": {"flag_saturated_pixels": true, "review_focus": true}, "optimization": {"mode": "human", "max_rounds": 3, "vision_acceptance_score": 90, "minimum_heldout_wells": 3, "minimum_heldout_fields": 9},
+    "segmentation": {"nucleus": {"enabled": true, "channel_role": "nucleus", "engine": "cellpose", "model": "nuclei", "gpu": true, "cellpose": {"flow_threshold": 0.4, "cellprob_threshold": 0.0}, "filter": {}}, "cell": {"enabled": false}, "relationship": {"enabled": false}, "overlays": true},
+    "measurements": {"metrics": ["count", "area", "intensity"], "regions": ["nucleus"], "channel_roles": ["live_marker", "dead_marker"]}, "classification": {"enabled": false, "reason": "Set control-derived live/dead thresholds before enabling."}, "measurement_image": "corrected", "embedding": {"enabled": false, "provider": "openphenom"}, "reporting": {"enabled": true}}
+}

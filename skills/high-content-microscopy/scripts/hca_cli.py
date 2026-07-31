@@ -18,6 +18,7 @@ COMMANDS = {
     "recover": "hca_recover",
     "report": "hca_report",
     "share": "hca_share",
+    "templates": "hca_templates",
 }
 
 

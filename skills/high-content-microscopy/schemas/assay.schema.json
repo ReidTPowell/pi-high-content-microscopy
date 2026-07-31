@@ -35,6 +35,27 @@
             "minimum_heldout_fields": {"type": "integer", "minimum": 1}
           }
         },
+        "measurements": {
+          "oneOf": [
+            {"type": "array", "items": {"enum": ["count", "area", "shape", "intensity", "texture"]}},
+            {"type": "object", "required": ["metrics", "regions", "channel_roles"], "properties": {
+              "metrics": {"type": "array", "items": {"enum": ["count", "area", "shape", "intensity", "texture"]}},
+              "regions": {"type": "array", "items": {"enum": ["nucleus", "cell", "cytoplasm"]}},
+              "channel_roles": {"type": "array", "items": {"type": "string"}}
+            }}
+          ]
+        },
+        "features": {"type": "object"},
+        "classification": {
+          "type": "object",
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "region": {"enum": ["nucleus", "cell", "cytoplasm"]},
+            "default": {"type": "string"},
+            "rules": {"type": "array", "items": {"type": "object"}}
+          }
+        },
+        "derived_metrics": {"type": "array", "items": {"enum": ["nucleus_to_cytoplasm_ratio"]}},
         "embedding": {
           "type": "object",
           "properties": {

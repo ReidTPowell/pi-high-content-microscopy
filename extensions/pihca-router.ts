@@ -20,6 +20,8 @@ const PRODUCTION_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_production.py");
 const PLATE_REVIEW_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_plate_review.py");
 const RECOVER_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_recover.py");
 const DEFAULT_PROFILE = resolve(SKILL_ROOT, "configs/hcsai-dapi-phalloidin.json");
+const CONFIG_ROOT = resolve(SKILL_ROOT, "configs");
+const TEMPLATES_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_templates.py");
 const TRIGGER = /\b(?:pi\s*hca|pihca)\b/i;
 const DEICTIC_INPUT = /\b(?:this|these|here|current|directory|folder|cwd)\b/i;
 const STATE_ENTRY = "pihca-workflow-state";
@@ -87,7 +89,7 @@ function statePrompt(state: WorkflowState): string {
 	}
 	if (state.phase === "assay_contract_required") {
 		return `Current phase: assay contract.${selected}
-Ask only for unresolved channel roles, primary/secondary objects, nuclear guidance, and human versus automated optimization. Segmentation tuning may proceed blinded to treatments and controls. Once those segmentation facts are confirmed, call pihca_prepare immediately; do not merely describe the command, inspect treatment identities in image metadata, or call HCA scripts through bash.`;
+Call pihca_list_templates and recommend the closest assay graph. Ask only for its unresolved channel roles, listed confirmations, nuclear guidance, and human versus automated optimization. Segmentation tuning may proceed blinded to treatments and controls. Once confirmed, call pihca_prepare immediately; do not merely describe the command, inspect treatment identities in image metadata, or call HCA scripts through bash.`;
 	}
 	if (state.phase === "pilot_segmentation_required") {
 		return `Current phase: pilot segmentation.${selected}
@@ -99,7 +101,7 @@ The preconfiguration and paired pilot-field plan exist at ${state.workflowState 
 	if (state.phase === "nuclei_review_required") {
 		return `Current phase: nuclei review.${selected}\nCall pihca_review_nuclei in human or automated mode. Do not tune secondary cells until one nuclei candidate is reviewed and accepted.`;
 	}
-	if (state.phase === "cell_segmentation_required") return `Current phase: secondary-cell tuning.${selected}\nCall pihca_tune_cells. It must use the accepted nuclei as guidance and relationship reference.`;
+	if (state.phase === "cell_segmentation_required") return `Current phase: cell-object tuning.${selected}\nCall pihca_tune_cells. It uses accepted nuclei as guidance when the selected template includes them, and runs cell-only otherwise.`;
 	if (state.phase === "cell_review_required") return `Current phase: cell and relationship review.${selected}\nOpen pihca_review_segmentation for stage cell, then call pihca_accept_review only after a named review is approved.`;
 	if (state.phase === "filter_review_required") return `Current phase: filter review.${selected}\nCall pihca_review_filters to preview exclusions. Call pihca_accept_filters only for explicit no-filter settings or filters supported by accepted exclusion evidence.`;
 	if (state.phase === "heldout_validation_required") return `Current phase: held-out validation.${selected}\nCall pihca_run_heldout. Record its validation only after visual review covers the configured minimum wells and fields.`;
@@ -142,6 +144,17 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 	pi.on("session_tree", async (_event, ctx) => reconstruct(ctx));
 
 	pi.registerTool({
+		name: "pihca_list_templates",
+		label: "List PiHCA Assay Templates",
+		description: "List executable bundled assay templates, their channel assumptions, and required confirmations.",
+		parameters: Type.Object({}),
+		async execute() {
+			const result = await runWorkflow(TEMPLATES_SCRIPT, ["list"]);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
 		name: "pihca_prepare",
 		label: "Prepare PiHCA Pilot",
 		description: "Version a confirmed single-plate assay config and build its manifest, metadata curation, validation, well plan, QC sample, and reproducible workflow state. Use after segmentation channel/object roles are confirmed. Treatment labels are optional for blinded segmentation optimization.",
@@ -152,7 +165,7 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			acquisition: Type.String({ description: "Exact selected acquisition directory from PiHCA intake" }),
-			config_template: Type.String({ description: "Confirmed assay template path, or bundled-dapi-phalloidin only after DAPI nuclei and phalloidin cell boundaries are explicitly confirmed" }),
+			config_template: Type.String({ description: "Template ID from pihca_list_templates, a confirmed config path, or bundled-dapi-phalloidin" }),
 			optimization_mode: Type.Optional(Type.String({ description: "human (default) or automated" })),
 			blinded: Type.Optional(Type.Boolean({ description: "Tune segmentation without treatment/control identities" })),
 			endpoint: Type.Optional(Type.String({ description: "Biological endpoint when known" })),
@@ -171,7 +184,9 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 			if (mode !== "human" && mode !== "automated") {
 				return { content: [{ type: "text", text: "optimization_mode must be human or automated" }], details: { state, error: "invalid mode" } };
 			}
-			const profile = params.config_template === "bundled-dapi-phalloidin" ? DEFAULT_PROFILE : params.config_template;
+			const catalogProfile = resolve(CONFIG_ROOT, `hcsai-${params.config_template}.json`);
+			const profile = params.config_template === "bundled-dapi-phalloidin" ? DEFAULT_PROFILE
+				: (existsSync(catalogProfile) ? catalogProfile : params.config_template);
 			const args = [PREPARE_SCRIPT, "--input", acquisition, "--config-template", profile,
 				"--optimization-mode", mode, "--workers", String(params.workers ?? 1)];
 			if (params.blinded) args.push("--blinded");
@@ -209,7 +224,7 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "pihca_tune_cells",
 		label: "Tune PiHCA Cells",
-		description: "Run a bounded secondary-cell Cellpose sweep with accepted nuclear labels for guidance and relationship QC.",
+		description: "Run a bounded cell-object Cellpose sweep, using accepted nuclear labels for guidance and relationship QC when configured.",
 		parameters: Type.Object({
 			workflow_state: Type.Optional(Type.String()), diameters: Type.Optional(Type.String()),
 			flow_thresholds: Type.Optional(Type.String()), cellprob_thresholds: Type.Optional(Type.String()),

@@ -57,6 +57,13 @@ def main() -> int:
     if background.get("enabled"):
         required = {"numpy", "tifffile"} | ({"scipy"} if background.get("method") == "opening" else set())
         missing = sorted(set(missing) | {module for module in required if importlib.util.find_spec(module) is None})
+    analysis = config.get("analysis", {})
+    measurements = analysis.get("measurements", [])
+    metrics = measurements.get("metrics", []) if isinstance(measurements, dict) else measurements
+    features = analysis.get("features", {})
+    if metrics or features.get("puncta") or features.get("confluence", {}).get("enabled"):
+        missing = sorted(set(missing) | {module for module in ("numpy", "scipy", "tifffile")
+                                        if importlib.util.find_spec(module) is None})
     embedding = config.get("analysis", {}).get("embedding", {})
     embedding_errors = []
     if embedding.get("enabled"):
@@ -72,7 +79,8 @@ def main() -> int:
         else:
             try:
                 environment_python = resolve_environment_python(Path(conda), embedding.get("environment", "openphenom"))
-                check = subprocess.run([str(environment_python), "-c", "import PIL,numpy,torch,huggingface_hub"],
+                check = subprocess.run(
+                    [str(environment_python), "-c", "import PIL,numpy,torch,huggingface_hub,timm,safetensors,yaml"],
                                        capture_output=True, text=True)
                 if check.returncode:
                     embedding_errors.append("OpenPhenom environment is incomplete: " + check.stderr.strip().splitlines()[-1])

@@ -1,0 +1,7 @@
+{
+  "name": "HCS.ai confluence and area coverage",
+  "template": {"id": "confluence-area", "family": "coverage", "description": "Foreground coverage without forcing individual cell separation.", "confirm": ["foreground channel", "bright or dark polarity", "minimum connected area"]},
+  "input": {"adapter": "hcsai", "extensions": [".tif", ".tiff"], "expected_channels": [0], "expected_z_planes": [0]}, "channels": {"0": {"name": "Brightfield or cell stain", "role": "foreground"}},
+  "analysis": {"unit_of_analysis": "field", "preprocessing": {"background_subtraction": {"enabled": false, "method": "percentile", "percentile": 5.0, "radius": 25}}, "qc": {"flag_saturated_pixels": false, "review_focus": true}, "optimization": {"mode": "human", "max_rounds": 3, "vision_acceptance_score": 90, "minimum_heldout_wells": 3, "minimum_heldout_fields": 9},
+    "segmentation": {"nucleus": {"enabled": false}, "cell": {"enabled": false}, "relationship": {"enabled": false}, "overlays": true}, "measurements": {"metrics": [], "regions": [], "channel_roles": []}, "features": {"confluence": {"enabled": true, "channel_role": "foreground", "polarity": "bright", "threshold": null, "smoothing_sigma": 1.0, "minimum_component_px": 25}}, "measurement_image": "raw", "embedding": {"enabled": false, "provider": "openphenom"}, "reporting": {"enabled": true}}
+}

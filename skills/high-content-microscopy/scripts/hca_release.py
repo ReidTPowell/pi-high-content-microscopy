@@ -13,7 +13,12 @@ from pathlib import Path
 from hca_contract import atomic_write_json, sha256
 
 
-REQUIRED_REVIEW_STAGES = {"nucleus", "filter"}
+def required_review_stages(config: dict) -> set[str]:
+    segmentation = config.get("analysis", {}).get("segmentation", {})
+    required = {stage for stage in ("nucleus", "cell") if segmentation.get(stage, {}).get("enabled")}
+    if required:
+        required.add("filter")
+    return required
 
 
 def now() -> str:
@@ -127,10 +132,8 @@ def verify_release(path: Path) -> dict:
         approved_filter_review(artifact) if record.get("stage") == "filter" else approved_review(artifact)
         record["path"] = str(artifact.resolve())
     stages = {record.get("stage") for record in release.get("reviews", [])}
-    required = set(REQUIRED_REVIEW_STAGES)
     config = json.loads(Path(release["config"]["path"]).read_text(encoding="utf-8"))
-    if config.get("analysis", {}).get("segmentation", {}).get("cell", {}).get("enabled"):
-        required.add("cell")
+    required = required_review_stages(config)
     if missing := sorted(required - stages):
         raise ValueError("release is missing approved review stages: " + ", ".join(missing))
     passed_heldout(Path(release["heldout"]["path"]), config)
@@ -155,9 +158,7 @@ def create_release(state: dict, operator: str, reviewer: str) -> tuple[Path, dic
             raise ValueError(f"review changed after workflow acceptance: {record.get('stage')}")
         decision = approved_filter_review(review_path) if record["stage"] == "filter" else approved_review(review_path)
         reviews.append({"stage": record["stage"], "source": review_path, "reviewer": decision["reviewer"]})
-    required = set(REQUIRED_REVIEW_STAGES)
-    if config.get("analysis", {}).get("segmentation", {}).get("cell", {}).get("enabled"):
-        required.add("cell")
+    required = required_review_stages(config)
     if missing := sorted(required - {item["stage"] for item in reviews}):
         raise ValueError("cannot release without approved stages: " + ", ".join(missing))
 

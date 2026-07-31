@@ -1,0 +1,18 @@
+{
+  "name": "HCS.ai 4x DAPI nuclei count",
+  "template": {"id": "4x-dapi-nuclei-count", "family": "count", "description": "Low-magnification nuclear masks with count-focused output.", "confirm": ["DAPI channel", "expected nuclear size at 4x", "debris and edge-object policy"]},
+  "input": {"adapter": "hcsai", "extensions": [".tif", ".tiff"], "expected_channels": [0], "expected_z_planes": [0]},
+  "channels": {"0": {"name": "DAPI", "role": "nucleus"}},
+  "analysis": {
+    "unit_of_analysis": "well",
+    "preprocessing": {"background_subtraction": {"enabled": false, "method": "percentile", "percentile": 5.0, "radius": 25}},
+    "qc": {"flag_saturated_pixels": true, "review_focus": true},
+    "optimization": {"mode": "human", "max_rounds": 3, "vision_acceptance_score": 90, "minimum_heldout_wells": 3, "minimum_heldout_fields": 9},
+    "segmentation": {
+      "nucleus": {"enabled": true, "channel_role": "nucleus", "engine": "cellpose", "model": "nuclei", "gpu": true, "diameter": null, "cellpose": {"flow_threshold": 0.4, "cellprob_threshold": 0.0, "normalize": true, "tile_overlap": 0.1}, "filter": {"min_area_px": null, "max_area_px": null, "min_intensity_mean": null, "max_intensity_mean": null}},
+      "cell": {"enabled": false}, "relationship": {"enabled": false}, "overlays": true
+    },
+    "measurements": {"metrics": ["count"], "regions": ["nucleus"], "channel_roles": []},
+    "measurement_image": "raw", "embedding": {"enabled": false, "provider": "openphenom"}, "reporting": {"enabled": true, "detail": "counts_only"}
+  }
+}

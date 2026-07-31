@@ -62,7 +62,7 @@ def run_validation(state_path: Path, workers: int) -> dict:
     minimum_wells = int(optimization.get("minimum_heldout_wells", 3))
     minimum_fields = int(optimization.get("minimum_heldout_fields", 9))
     plan = json.loads(Path(state["well_plan"]).read_text(encoding="utf-8"))
-    selected = choose_jobs(plan, state.get("pilot_field", {}).get("well"), minimum_wells, minimum_fields)
+    selected = choose_jobs(plan, (state.get("pilot_field") or {}).get("well"), minimum_wells, minimum_fields)
     output = next_validation(Path(state["output"])); wells_dir = output / "wells"
     pipeline = Path(__file__).parent / "hca_pipeline.py"
 
@@ -84,7 +84,10 @@ def run_validation(state_path: Path, workers: int) -> dict:
         summary = json.loads((Path(result["output"]) / "pipeline-summary.json").read_text(encoding="utf-8"))
         for field in summary["fields"]:
             field_dir = Path(result["output"]) / f"{field['site']}-t{field['timepoint']}-z{field['z']}"
-            overlay = field_dir / ("cell-overlay.tif" if (field_dir / "cell-overlay.tif").is_file() else "nuclei-overlay.tif")
+            overlay = next((field_dir / name for name in ("cell-overlay.tif", "nuclei-overlay.tif", "confluence-overlay.tif")
+                            if (field_dir / name).is_file()), None)
+            if overlay is None:
+                raise ValueError(f"held-out field has no review overlay: {field_dir}")
             fields.append({"id": f"{result['well']}-{field['site']}-t{field['timepoint']}-z{field['z']}",
                            "well": result["well"], "overlay": str(overlay), "overlay_sha256": sha256(overlay),
                            "relationship_qc": field.get("relationship_qc"), "relationship": field.get("relationship")})

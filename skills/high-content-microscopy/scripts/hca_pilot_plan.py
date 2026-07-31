@@ -25,17 +25,31 @@ def mean_intensity(record: dict) -> float:
 
 
 def select_fields(records: list[dict], config: dict, count: int) -> list[dict]:
-    segmentation = config["analysis"]["segmentation"]
-    nucleus_channel = role_channel(config, segmentation["nucleus"]["channel_role"])
+    analysis = config["analysis"]
+    segmentation = analysis.get("segmentation", {})
+    nucleus_stage = segmentation.get("nucleus", {})
     cell_stage = segmentation.get("cell", {})
-    cell_channel = role_channel(config, cell_stage["channel_role"]) if cell_stage.get("enabled") else None
-    required = {nucleus_channel} | ({cell_channel} if cell_channel is not None else set())
+    roles = []
+    if nucleus_stage and nucleus_stage.get("enabled", True):
+        roles.append(nucleus_stage["channel_role"])
+    if cell_stage.get("enabled"):
+        roles.append(cell_stage["channel_role"])
+    features = analysis.get("features", {})
+    puncta = features.get("puncta", [])
+    if isinstance(puncta, dict):
+        puncta = [puncta]
+    roles.extend(item["channel_role"] for item in puncta if item.get("enabled", True))
+    if features.get("confluence", {}).get("enabled"):
+        roles.append(features["confluence"]["channel_role"])
+    required = {role_channel(config, role) for role in roles}
+    if not required:
+        required = set(config.get("input", {}).get("expected_channels", [])) or {int(value) for value in config["channels"]}
     grouped: dict[tuple, dict[int, dict]] = defaultdict(dict)
     for record in records:
         grouped[(record.get("well"), record.get("site"), record.get("timepoint"), record.get("z"))][record.get("channel")] = record
     paired = [(key, channels) for key, channels in grouped.items() if required.issubset(channels)]
     if not paired:
-        raise ValueError("manifest has no fields containing all configured segmentation channels")
+        raise ValueError("manifest has no fields containing all configured analysis channels")
     if count > len(paired):
         raise ValueError(f"requested {count} fields but only {len(paired)} paired fields are available")
 
@@ -82,7 +96,7 @@ def main() -> int:
         "selection_basis": "paired fields spanning combined per-channel acquisition metadata mean-intensity rank",
         "treatment_blinded": True,
         "fields": fields,
-        "next_action": "Run the bounded nuclei Cellpose grid on these fields and compare overlays before secondary cell tuning.",
+        "next_action": "Run the first enabled object or feature optimization on these fields and compare visual evidence.",
     }
     atomic_write_json(args.output, payload)
     print(json.dumps({"fields": len(fields), "output": str(args.output), "next_action": payload["next_action"]}, indent=2))
