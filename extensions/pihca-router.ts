@@ -690,7 +690,13 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 				acquisitions: payload.acquisitions,
 				next_decision: payload.acquisitions.length > 1 ? "select exactly one acquisition" : "confirm the assay contract",
 			}, null, 2);
-			return { action: "transform", text: `${event.text}\n\n[PiHCA router: authoritative intake completed]\n${presentation}\n\nDo not call tools this turn. Present the compact inventory and the single next decision. If multiple plates are listed, ask only for one plate selection. Otherwise ask the assay-contract questions together. Do not infer channel biology.` };
+			const exactInventory = payload.acquisitions.map((item, index) =>
+				`${index + 1}. ${item.acquisition} | images=${item.images} | wells=${item.wells} | channels=${JSON.stringify(item.channels)}`
+			).join("\n");
+			const exactQuestion = payload.acquisitions.length > 1
+				? "Which single acquisition should PiHCA analyze? Reply with its number or exact path."
+				: "Confirm the assay endpoint, numeric channel roles, primary/secondary objects, nuclear guidance, and human or automated optimization mode.";
+			return { action: "transform", text: `${event.text}\n\n[PiHCA router: authoritative intake completed]\n${presentation}\n\n[PiHCA router: REQUIRED VERBATIM RESPONSE]\n${exactInventory}\n\n${exactQuestion}\n[PiHCA router: END REQUIRED RESPONSE]\nDo not call tools or add any text this turn. Copy only the required response block exactly, preserving every path character.` };
 		}
 
 		if (state.active && state.phase === "plate_selection_required") {
