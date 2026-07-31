@@ -30,7 +30,9 @@
           "properties": {
             "mode": {"enum": ["human", "automated"]},
             "max_rounds": {"type": "integer", "minimum": 1},
-            "vision_acceptance_score": {"type": "number", "minimum": 0, "maximum": 100}
+            "vision_acceptance_score": {"type": "number", "minimum": 0, "maximum": 100},
+            "minimum_heldout_wells": {"type": "integer", "minimum": 1},
+            "minimum_heldout_fields": {"type": "integer", "minimum": 1}
           }
         },
         "embedding": {

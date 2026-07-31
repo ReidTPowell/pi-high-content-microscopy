@@ -39,10 +39,13 @@ Use this state order and never restart an earlier phase unless the user changes 
 2. Select exactly one acquisition.
 3. Confirm segmentation roles and human or automated optimization.
 4. Call `pihca_prepare`; do not just show its command.
-5. Call `pihca_tune_nuclei` to tune nuclei on deterministic paired pilot fields.
-6. Call `pihca_review_nuclei` in human or automated mode, then tune cells with nuclear guidance and relationship QC.
-7. Review filters and held-out fields.
-8. Obtain named approval, then run parallel wells for this plate only.
+5. Call `pihca_tune_nuclei`, review every candidate, and use `pihca_accept_review` to version the accepted parameters.
+6. Call `pihca_tune_cells`; review boundaries and relationship QC, then version that decision.
+7. Call `pihca_review_filters`; accept only explicit no-filter settings or filters with accepted exclusion overlays.
+8. Call `pihca_run_heldout` and review every independent held-out field.
+9. Record held-out evidence, obtain named approval, and create an immutable release.
+10. Run one untouched production canary. Present it and wait for explicit batch approval.
+11. Submit one plate through `pihca_submit_batch`, poll `pihca_status`, and complete plate QC.
 
 When the user says `continue`, execute the next safe state transition. Do not repeat a proposal, repeat intake, inspect arbitrary sidecars, or narrate an action without performing it.
 
@@ -82,6 +85,6 @@ Use `hca_review_ui.py build` to create side-by-side PNG assets and `hca_vision_r
 
 ## Production And Sharing
 
-Run one validated plate at a time with `hca_runner.py`; parallelize wells only within that plate. Relationship QC flags are preserved in completed artifacts so they can be reviewed; use `--fail-on-qc` when the operating policy requires a nonzero well job. Use queue submission only after explicit operator approval, a published config, and a matching runtime lock. Default output is `<Barcode>_piHCA` beside the barcode-level input directory. Generate a plate report, then use `hca_share.py` for a portable bundle that excludes raw TIFFs.
+Run production only through the registered PiHCA release, canary, and queue tools. A release binds the approved config, runtime, manifest, stage reviews, held-out evidence, operator, and reviewer. `hca_runner.py` accepts that release and a structured plan; it does not accept model-authored shell. It journals each completed well, uses deterministic GPU assignment, and stops dispatch after repeated startup failures. Archive stale staging with `pihca_archive_staging`; never delete pilot or failed-run evidence. Default output is `<Barcode>_piHCA` beside the barcode-level input directory, with immutable `pilots/`, `validation/`, `releases/`, and `runs/` namespaces. Generate a plate report, then use `hca_share.py` for a portable bundle that excludes raw TIFFs.
 
 Do not claim biological effects without reviewed controls, plate-map context, segmentation acceptance, exclusion audits, and statistics at the correct experimental unit. Surface failures and uncertainty instead of forcing assignments or continuing a batch.

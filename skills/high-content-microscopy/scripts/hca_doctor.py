@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,33 @@ from pathlib import Path
 
 from hca_embed import resolve_environment_python
 from hca_runtime import verify
+
+
+def active_pihca_sources(cwd: Path) -> list[str]:
+    settings = [Path(os.environ.get("PI_CODING_AGENT_DIR", "~/.pi/agent")).expanduser() / "settings.json"]
+    settings.extend(parent / ".pi" / "settings.json" for parent in (cwd, *cwd.parents))
+    sources = []
+    for path in dict.fromkeys(settings):
+        if not path.is_file():
+            continue
+        try:
+            packages = json.loads(path.read_text(encoding="utf-8")).get("packages", [])
+        except (OSError, json.JSONDecodeError):
+            continue
+        for package in packages:
+            if not isinstance(package, str):
+                continue
+            resolved = (path.parent / package).resolve() if not package.startswith(("http:", "https:", "github:", "npm:")) else None
+            package_file = resolved / "package.json" if resolved else None
+            package_name = ""
+            if package_file and package_file.is_file():
+                try:
+                    package_name = json.loads(package_file.read_text(encoding="utf-8")).get("name", "")
+                except (OSError, json.JSONDecodeError):
+                    pass
+            if "pi-high-content-microscopy" in package.lower() or package_name == "pi-high-content-microscopy":
+                sources.append(f"{path}: {package}")
+    return sorted(set(sources))
 
 
 def main() -> int:
@@ -52,12 +80,22 @@ def main() -> int:
                 embedding_errors.append(str(error))
     source_exists = args.source_root is None or args.source_root.is_dir()
     runtime_ready, runtime_errors = (True, []) if args.runtime_lock is None else verify(args.runtime_lock)
+    pihca_sources = active_pihca_sources(Path.cwd())
+    activation_errors = [] if len(pihca_sources) <= 1 else [
+        "PiHCA is active from multiple Pi package sources; remove the project-local or global duplicate"
+    ]
+    ready = not missing and not embedding_errors and not activation_errors and source_exists and runtime_ready
+    if activation_errors:
+        next_action = "remove one duplicate PiHCA package source, then restart Pi"
+    elif ready:
+        next_action = "continue the guarded PiHCA workflow"
+    else:
+        next_action = "run setup_env.sh with required extras, configure the embedding adapter, or recreate the runtime lock"
     payload = {"python": sys.executable, "config": str(args.config), "engines": sorted(engines),
                "missing_modules": missing, "source_root_ok": source_exists,
                "runtime_lock": None if args.runtime_lock is None else str(args.runtime_lock), "runtime_errors": runtime_errors,
-               "embedding_errors": embedding_errors,
-               "ready": not missing and not embedding_errors and source_exists and runtime_ready,
-               "next_action": "run hca_pipeline.py" if not missing and not embedding_errors and source_exists and runtime_ready else "run setup_env.sh with required extras, configure the embedding adapter, or recreate the runtime lock"}
+               "embedding_errors": embedding_errors, "pihca_package_sources": pihca_sources,
+               "activation_errors": activation_errors, "ready": ready, "next_action": next_action}
     print(json.dumps(payload, indent=2))
     return 0 if payload["ready"] else 2
 

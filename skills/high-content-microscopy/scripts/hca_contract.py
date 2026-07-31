@@ -95,6 +95,10 @@ def validate_config(config: dict[str, Any]) -> list[str]:
     score = optimization.get("vision_acceptance_score", 90) if isinstance(optimization, dict) else 90
     if not isinstance(score, (int, float)) or not 0 <= score <= 100:
         errors.append("analysis.optimization.vision_acceptance_score must be 0..100")
+    for key, default in (("minimum_heldout_wells", 3), ("minimum_heldout_fields", 9)):
+        value = optimization.get(key, default) if isinstance(optimization, dict) else default
+        if not isinstance(value, int) or value < 1:
+            errors.append(f"analysis.optimization.{key} must be a positive integer")
     embedding = config.get("analysis", {}).get("embedding", {}) if isinstance(config.get("analysis"), dict) else {}
     if embedding.get("enabled") and not embedding.get("adapter_script"):
         errors.append("analysis.embedding.adapter_script is required when embedding is enabled")

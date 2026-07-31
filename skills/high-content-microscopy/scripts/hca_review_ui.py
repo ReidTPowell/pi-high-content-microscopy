@@ -72,6 +72,10 @@ def validate_review(review: dict) -> None:
         score = candidate.get("score")
         if not isinstance(score, (int, float)) or not 0 <= score <= 100:
             raise ValueError(f"candidate {candidate.get('id')} requires a score from 0 to 100")
+    if review.get("review_status") == "approved":
+        selected_review = next(item for item in candidates if item.get("id") == selected)
+        if selected_review.get("acceptable") is not True:
+            raise ValueError("approved review must explicitly mark the selected candidate acceptable")
     for object_name, criteria in review.get("filter_recommendations", {}).items():
         for key, value in criteria.items():
             if value is not None and (not isinstance(value, (int, float)) or value < 0):

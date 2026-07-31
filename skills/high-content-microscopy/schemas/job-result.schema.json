@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Pi HCA queue job result",
   "type": "object",
-  "required": ["schema_version", "job_id", "state", "worker_id", "finished_at", "returncode", "output_dir"],
+  "required": ["schema_version", "job_id", "state", "worker_id", "finished_at", "returncode", "run_dir"],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "job_id": {"type": "string", "minLength": 1},
     "state": {"enum": ["complete", "failed", "cancelled"]},
     "worker_id": {"type": "string", "minLength": 1},
     "finished_at": {"type": "string", "minLength": 1},
     "returncode": {"type": "integer"},
-    "output_dir": {"type": "string", "minLength": 1}
+    "run_dir": {"type": "string", "minLength": 1}
   }
 }

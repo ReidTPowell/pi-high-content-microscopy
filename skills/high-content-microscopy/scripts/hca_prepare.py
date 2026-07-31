@@ -104,6 +104,12 @@ def main() -> int:
         raise RuntimeError(pilot_result.stderr.strip() or pilot_result.stdout.strip() or "pilot field selection failed")
 
     runtime_ready = prepared["status"] == "pending_human_review"
+    runtime_lock = output / "runtime" / "runtime-lock.json"
+    runtime_result = subprocess.run([
+        sys.executable, str(Path(__file__).parent / "hca_runtime.py"), "capture", "--output", str(runtime_lock),
+    ], capture_output=True, text=True)
+    if runtime_result.returncode:
+        raise RuntimeError(runtime_result.stderr.strip() or runtime_result.stdout.strip() or "runtime capture failed")
     phase = "pilot_segmentation_required" if runtime_ready else "runtime_setup_required"
     next_action = (
         "Run a bounded nuclei Cellpose sweep on the paired fields in pilot-fields.json, then review nuclei "
@@ -120,7 +126,11 @@ def main() -> int:
         "config": str(config_path),
         "config_sha256": sha256(config_path),
         "preconfiguration": str(preconfiguration_path),
+        "manifest": preconfiguration["manifest"],
+        "well_plan": preconfiguration["well_plan"],
+        "runtime_lock": str(runtime_lock),
         "pilot_fields": str(pilot_plan),
+        "review_history": [],
         "optimization_mode": args.optimization_mode,
         "blinded": args.blinded,
         "plate_map_required_before_biological_analysis": args.plate_map is None,
@@ -133,6 +143,7 @@ def main() -> int:
         "config": str(config_path),
         "config_sha256": state["config_sha256"],
         "preconfiguration": state["preconfiguration"],
+        "runtime_lock": str(runtime_lock),
         "pilot_fields": str(pilot_plan),
         "workflow_state": str(output / "workflow-state.json"),
         "blinded": args.blinded,

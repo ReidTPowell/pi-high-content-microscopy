@@ -40,5 +40,5 @@ class ReviewUiTests(unittest.TestCase):
     def test_rejects_inverted_filter_range(self):
         with self.assertRaisesRegex(ValueError, "exceeds"):
             REVIEW_UI.validate_review({"reviewer": "operator", "review_status": "approved",
-                "selected_candidate": "candidate-01", "candidate_reviews": [{"id": "candidate-01", "score": 90}],
+                "selected_candidate": "candidate-01", "candidate_reviews": [{"id": "candidate-01", "score": 90, "acceptable": True}],
                 "filter_recommendations": {"nucleus": {"min_area_px": 100, "max_area_px": 50}}})

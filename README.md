@@ -10,17 +10,19 @@ pi install github:ReidTPowell/pi-high-content-microscopy
 
 The package includes both the assay-expert skill and a lightweight Pi router. When a user says `piHCA` with an existing path, the router runs the bounded HCS.ai intake before the model acts, injects the compact inventory, and blocks broad fallback searches for that intake turn.
 
+Keep exactly one PiHCA package source active. Do not install the GitHub package globally while also listing a local checkout in a project `.pi/settings.json`; Pi will reject the duplicate tool registrations. Remove a local duplicate with `pi remove -l /absolute/path/to/pi-high-content-microscopy --approve`, then confirm `pi list` shows only the intended GitHub source. `pihca-doctor` also reports this condition.
+
 Set `PIHCA_PYTHON` to the locked analysis interpreter used by Pi. Without it, intake still works and preconfiguration reports missing engines instead of silently using a different environment:
 
 ```sh
-export PIHCA_PYTHON=/opt/pi-hca/envs/0.5.0/bin/python
+export PIHCA_PYTHON=/opt/pi-hca/envs/0.6.0/bin/python
 ```
 
 Create a reproducible image-analysis runtime once per release:
 
 ```sh
 skills/high-content-microscopy/scripts/setup_env.sh \
-  --env .venv-pihca --extras qc,review,cellpose \
+  --env .venv-pihca --extras all \
   --lock-file runtime-lock.json
 ```
 
@@ -56,7 +58,7 @@ The package does not ship a monolithic analysis script. Microscopy assays vary m
 
 Install only the reader or analysis engine needed for the assay: `pip install '.[ome]'`, `'.[bioformats]'`, `'.[qc]'`, `'.[review]'`, `'.[cellpose]'`, or `'.[stardist]'`. Each segmentation engine writes a labeled TIFF; the downstream measurement layer retains manifest identifiers and model provenance.
 
-`hca_runner.py` executes a validated single-plate work plan with atomic well outputs, retries, resume markers, structured failures, provenance hashes, and GPU admission control. Its command template receives `{well}`, `{manifest}`, `{output}`, and `{gpu}`.
+`hca_runner.py` executes an approved single-plate release with atomic well outputs, transient-only retries, incremental journals, structured failures, deterministic GPU assignment, and GPU admission control. It constructs a fixed argument vector for `hca_pipeline.py`; arbitrary shell templates are not accepted.
 
 ## Assisted Workflow
 
@@ -72,7 +74,7 @@ The assay configuration can activate this graph directly: `nucleus` segmentation
 
 Say `piHCA` to begin expert intake. Pi first inspects the file structure and then asks for the biological endpoint, controls, channel roles, primary/secondary objects, and the expected morphology. It should offer a non-destructive preconfiguration packet rather than starting a batch run:
 
-The router persists the workflow phase in the Pi session and exposes deterministic `pihca_prepare`, `pihca_tune_nuclei`, and `pihca_review_nuclei` tools. A request such as “these images” uses Pi's current directory, ordinal plate choices are resolved from intake, and `continue` advances the current phase instead of restarting discovery.
+The router persists the workflow from intake through nuclei, cells, filter evidence, held-out validation, immutable release, canary, explicit batch approval, production status, and plate QC. A request such as “these images” uses Pi's current directory, ordinal plate choices are resolved from intake, and `continue` advances the current safe phase instead of restarting discovery.
 
 ```sh
 python3 skills/high-content-microscopy/scripts/hca_preconfigure.py \
@@ -140,7 +142,7 @@ python3 skills/high-content-microscopy/scripts/hca_vision_review.py template \
 
 Pi completes the template after inspecting each overlay against its raw image, then runs `finalize` to produce ranked, acceptable candidates. The artifact records the vision model/reviewer, scores, observed split/merge/false-object errors, and filter recommendations. It is intentionally not sufficient to publish a config without named human approval.
 
-For a plate acquisition with barcode `70126`, the default analysis root is `70126_piHCA` beside the barcode-level raw directory. A single-well pipeline writes to `70126_piHCA/wells/A01`; explicit `--output-dir` values override this behavior.
+For a plate acquisition with barcode `70126`, the default analysis root is `70126_piHCA` beside the barcode-level raw directory. Pilots, validation, approved releases, and production runs use separate immutable namespaces below that root.
 
 ## Workstation deployment
 
@@ -148,8 +150,8 @@ For managed GPU workstations, Pi is the operator-facing control plane: it prepar
 
 ```sh
 skills/high-content-microscopy/scripts/setup_env.sh \
-  --env /opt/pi-hca/envs/0.1.0 --extras qc,cellpose \
-  --lock-file /opt/pi-hca/envs/0.1.0/runtime-lock.json
+  --env /opt/pi-hca/envs/0.6.0 --extras ome,qc,review,cellpose \
+  --lock-file /opt/pi-hca/envs/0.6.0/runtime-lock.json
 ```
 
 Initialize a shared queue directory once. Its SQLite file is an audit index; job requests and worker results are separately published as atomic JSON artifacts. Keep all queue administration on a filesystem with reliable locking. Do not put the SQLite file on an unreliable network mount.
@@ -158,19 +160,17 @@ Initialize a shared queue directory once. Its SQLite file is an audit index; job
 QUEUE=/shared/pi-hca-queue
 python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" init
 python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" register-worker --worker-id gpu-ws-01
-python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" publish-config \
-  --config assay.json --review approved-review.json --operator trained-operator
+pihca queue --queue-dir "$QUEUE" publish-release \
+  --release 70126_piHCA/releases/release-.../release.json --operator trained-operator
 ```
 
-Publishing requires an approved review with a named reviewer. Submit each prepared plate explicitly, then run the dispatcher from a registered workstation. It claims at most the requested number of whole-plate jobs; each job delegates bounded parallel wells to `hca_runner.py`.
+Publishing verifies the release and every bound artifact hash. Submit each prepared plate explicitly after its canary, then run the dispatcher from a registered workstation. Each queue job delegates bounded parallel wells to the structured runner.
 
 ```sh
-python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" submit \
-  --plan well-jobs/plan.json --output-dir /data/70126_piHCA --config-id cfg-... \
-  --runtime-lock /opt/pi-hca/envs/0.1.0/runtime-lock.json --operator trained-operator --workers 2
-python3 skills/high-content-microscopy/scripts/hca_queue.py --queue-dir "$QUEUE" dispatch \
-  --worker-id gpu-ws-01 --max-jobs 1 \
-  --command 'python3 /absolute/path/hca_pipeline.py --well-manifest {manifest} --config {config} --source-root /data/70126 --output-dir {output}'
+pihca queue --queue-dir "$QUEUE" submit --plan well-jobs/plan.json \
+  --run-dir /data/70126_piHCA/runs/run-001 --release-id release-... \
+  --operator trained-operator --workers 2
+pihca queue --queue-dir "$QUEUE" dispatch --worker-id gpu-ws-01 --max-jobs 1
 ```
 
 Use `status`, `report`, `cancel --job-id`, and `retry --job-id` for operations. All queue results, copied published configurations, run provenance, QC/review decisions, and analysis artifacts remain shareable with `hca_share.py` while raw TIFFs remain excluded.

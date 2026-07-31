@@ -1,6 +1,6 @@
 [project]
 name = "pi-high-content-microscopy"
-version = "0.5.0"
+version = "0.6.0"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -10,14 +10,34 @@ bioformats = ["bioio>=3"]
 qc = ["numpy>=1.26", "scipy>=1.10", "tifffile>=2024.5"]
 review = ["numpy>=1.26", "tifffile>=2024.5", "Pillow>=10"]
 cellpose = ["cellpose>=3", "numpy>=1.26", "packaging>=23", "tifffile>=2024.5"]
-stardist = ["stardist>=0.9", "csbdeep>=0.8", "numpy>=1.26", "tifffile>=2024.5"]
+stardist = ["stardist>=0.9", "csbdeep>=0.8", "tensorflow>=2.12", "numpy>=1.26", "tifffile>=2024.5"]
+all = [
+  "tifffile>=2024.5", "bioio>=3", "numpy>=1.26", "scipy>=1.10", "Pillow>=10",
+  "cellpose>=3", "packaging>=23", "stardist>=0.9", "csbdeep>=0.8", "tensorflow>=2.12"
+]
 
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
+[project.scripts]
+pihca = "hca_cli:main"
+pihca-doctor = "hca_doctor:main"
+pihca-runner = "hca_runner:main"
+pihca-queue = "hca_queue:main"
+
 [tool.setuptools]
-packages = []
+package-dir = {"" = "skills/high-content-microscopy/scripts"}
+py-modules = [
+  "hca_batch", "hca_cell_pilot", "hca_cellpose_tune", "hca_cli", "hca_contract",
+  "hca_doctor", "hca_embed", "hca_filter", "hca_filter_review", "hca_filter_tune", "hca_heldout", "hca_intake",
+  "hca_manifest", "hca_measure", "hca_metadata", "hca_nuclei_pilot", "hca_openphenom_adapter",
+  "hca_optimize", "hca_overlay", "hca_pilot_plan", "hca_pipeline", "hca_plate_review", "hca_preconfigure",
+  "hca_preflight", "hca_prepare", "hca_preprocess", "hca_production", "hca_qc", "hca_queue",
+  "hca_recover", "hca_relate", "hca_release", "hca_report", "hca_review", "hca_review_ui",
+  "hca_runner", "hca_runtime", "hca_segment", "hca_share", "hca_validate", "hca_vision_review",
+  "hca_well_plan", "hca_workflow"
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

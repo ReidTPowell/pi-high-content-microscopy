@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,14 +9,26 @@ const SKILL_ROOT = resolve(PACKAGE_ROOT, "skills/high-content-microscopy");
 const INTAKE_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_intake.py");
 const PREPARE_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_prepare.py");
 const NUCLEI_PILOT_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_nuclei_pilot.py");
+const CELL_PILOT_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_cell_pilot.py");
 const REVIEW_UI_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_review_ui.py");
 const VISION_REVIEW_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_vision_review.py");
+const WORKFLOW_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_workflow.py");
+const FILTER_REVIEW_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_filter_review.py");
+const HELDOUT_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_heldout.py");
+const RELEASE_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_release.py");
+const PRODUCTION_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_production.py");
+const PLATE_REVIEW_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_plate_review.py");
+const RECOVER_SCRIPT = resolve(SKILL_ROOT, "scripts/hca_recover.py");
 const DEFAULT_PROFILE = resolve(SKILL_ROOT, "configs/hcsai-dapi-phalloidin.json");
 const TRIGGER = /\b(?:pi\s*hca|pihca)\b/i;
 const DEICTIC_INPUT = /\b(?:this|these|here|current|directory|folder|cwd)\b/i;
 const STATE_ENTRY = "pihca-workflow-state";
 
-type Phase = "inactive" | "plate_selection_required" | "assay_contract_required" | "runtime_setup_required" | "pilot_segmentation_required" | "nuclei_review_required";
+type Phase = "inactive" | "plate_selection_required" | "assay_contract_required" | "runtime_setup_required"
+	| "pilot_segmentation_required" | "nuclei_review_required" | "cell_segmentation_required"
+	| "cell_review_required" | "filter_review_required" | "heldout_validation_required"
+	| "release_approval_required" | "production_canary_required" | "batch_approval_required"
+	| "batch_running" | "plate_qc_required" | "complete";
 
 interface Acquisition {
 	acquisition: string;
@@ -87,14 +99,36 @@ The preconfiguration and paired pilot-field plan exist at ${state.workflowState 
 	if (state.phase === "nuclei_review_required") {
 		return `Current phase: nuclei review.${selected}\nCall pihca_review_nuclei in human or automated mode. Do not tune secondary cells until one nuclei candidate is reviewed and accepted.`;
 	}
+	if (state.phase === "cell_segmentation_required") return `Current phase: secondary-cell tuning.${selected}\nCall pihca_tune_cells. It must use the accepted nuclei as guidance and relationship reference.`;
+	if (state.phase === "cell_review_required") return `Current phase: cell and relationship review.${selected}\nOpen pihca_review_segmentation for stage cell, then call pihca_accept_review only after a named review is approved.`;
+	if (state.phase === "filter_review_required") return `Current phase: filter review.${selected}\nCall pihca_review_filters to preview exclusions. Call pihca_accept_filters only for explicit no-filter settings or filters supported by accepted exclusion evidence.`;
+	if (state.phase === "heldout_validation_required") return `Current phase: held-out validation.${selected}\nCall pihca_run_heldout. Record its validation only after visual review covers the configured minimum wells and fields.`;
+	if (state.phase === "release_approval_required") return `Current phase: release approval.${selected}\nAsk for the named operator and reviewer, then call pihca_approve_release. Do not run production yet.`;
+	if (state.phase === "production_canary_required") return `Current phase: production canary.${selected}\nCall pihca_run_canary on one untouched well using the immutable release.`;
+	if (state.phase === "batch_approval_required") return `Current phase: batch approval.${selected}\nPresent the canary result and wait for explicit user approval to run this plate. Only then call pihca_submit_batch.`;
+	if (state.phase === "batch_running") return `Current phase: batch running.${selected}\nCall pihca_status to report journaled progress. Do not start another plate.`;
+	if (state.phase === "plate_qc_required") return `Current phase: plate QC.${selected}\nCall pihca_review_plate, then call pihca_complete_plate_qc only with its approved named review. Do not interpret biology before completion.`;
 	return "";
 }
 
 export default function pihcaRouter(pi: ExtensionAPI) {
 	let intakeOnlyTurn = false;
+	let releaseApprovalTurn = false;
+	let batchApprovalTurn = false;
 	let state: WorkflowState = { active: false, phase: "inactive", acquisitions: [] };
 
 	const persist = () => pi.appendEntry<WorkflowState>(STATE_ENTRY, state);
+	const syncWorkflow = () => {
+		if (!state.workflowState || !existsSync(state.workflowState)) return;
+		const workflow = JSON.parse(readFileSync(state.workflowState, "utf8")) as { phase?: Phase };
+		if (workflow.phase) state = { ...state, phase: workflow.phase };
+		persist();
+	};
+	const runWorkflow = async (script: string, args: string[], timeout = 120_000) => {
+		const result = await pi.exec(process.env.PIHCA_PYTHON ?? "python3", [script, ...args], { timeout });
+		if (result.code === 0) syncWorkflow();
+		return result;
+	};
 	const reconstruct = (ctx: ExtensionContext) => {
 		state = { active: false, phase: "inactive", acquisitions: [] };
 		for (const entry of ctx.sessionManager.getBranch()) {
@@ -151,6 +185,226 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 			state = { ...state, active: true, phase: payload.phase, selectedAcquisition: acquisition, workflowState: payload.workflow_state };
 			persist();
 			return { content: [{ type: "text", text: result.stdout }], details: { state, payload } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_accept_review",
+		label: "Accept PiHCA Segmentation Review",
+		description: "Validate a completed named nuclei or cell review, copy its selected Cellpose parameters into a new immutable config version, and advance one guarded workflow phase.",
+		parameters: Type.Object({
+			stage: Type.String({ description: "nucleus or cell" }),
+			review: Type.String({ description: "Approved human-review.json" }),
+			workflow_state: Type.Optional(Type.String({ description: "Defaults to the active workflow state" })),
+		}),
+		async execute(_toolCallId, params) {
+			if (params.stage !== "nucleus" && params.stage !== "cell") return { content: [{ type: "text", text: "stage must be nucleus or cell" }] };
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const result = await runWorkflow(WORKFLOW_SCRIPT, ["--workflow-state", workflow, "accept-review", "--stage", params.stage, "--review", params.review]);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : `PiHCA review acceptance failed:\n${result.stderr || result.stdout}` }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_tune_cells",
+		label: "Tune PiHCA Cells",
+		description: "Run a bounded secondary-cell Cellpose sweep with accepted nuclear labels for guidance and relationship QC.",
+		parameters: Type.Object({
+			workflow_state: Type.Optional(Type.String()), diameters: Type.Optional(Type.String()),
+			flow_thresholds: Type.Optional(Type.String()), cellprob_thresholds: Type.Optional(Type.String()),
+		}),
+		async execute(_toolCallId, params) {
+			if (state.phase !== "cell_segmentation_required") return { content: [{ type: "text", text: `Cannot tune cells during phase ${state.phase}.` }] };
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const args = ["--workflow-state", workflow];
+			if (params.diameters) args.push(`--diameters=${params.diameters}`);
+			if (params.flow_thresholds) args.push(`--flow-thresholds=${params.flow_thresholds}`);
+			if (params.cellprob_thresholds) args.push(`--cellprob-thresholds=${params.cellprob_thresholds}`);
+			const result = await runWorkflow(CELL_PILOT_SCRIPT, args, 30 * 60_000);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : `PiHCA cell tuning failed:\n${result.stderr || result.stdout}` }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_review_segmentation",
+		label: "Review PiHCA Segmentation",
+		description: "Open the local review UI for nuclei or cell candidates; cell review includes relationship metrics in candidate evidence.",
+		parameters: Type.Object({ candidates: Type.String(), mode: Type.String(), stage: Type.String() }),
+		async execute(_toolCallId, params) {
+			const expected = params.stage === "cell" ? "cell_review_required" : "nuclei_review_required";
+			if (state.phase !== expected) return { content: [{ type: "text", text: `Cannot review ${params.stage} during phase ${state.phase}.` }] };
+			if (params.mode !== "human" && params.mode !== "automated") return { content: [{ type: "text", text: "mode must be human or automated" }] };
+			const candidates = resolveCandidate(params.candidates, process.cwd());
+			if (!candidates) return { content: [{ type: "text", text: `Candidate file not found: ${params.candidates}` }] };
+			const reviewDir = resolve(dirname(candidates), `${params.mode}-review`);
+			if (params.mode === "human") {
+				const result = await runWorkflow(REVIEW_UI_SCRIPT, ["start", "--candidates", candidates, "--output-dir", reviewDir, "--open-browser"]);
+				return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr }], details: { state, reviewDir } };
+			}
+			const build = await runWorkflow(REVIEW_UI_SCRIPT, ["build", "--candidates", candidates, "--output-dir", reviewDir]);
+			if (build.code !== 0) return { content: [{ type: "text", text: build.stderr || build.stdout }] };
+			const template = resolve(reviewDir, "vision-review.pending.json");
+			const contract = await runWorkflow(VISION_REVIEW_SCRIPT, ["template", "--candidates", candidates, "--output", template]);
+			return { content: [{ type: "text", text: `${build.stdout}\n${contract.stdout}` }], details: { state, reviewDir, template } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_accept_filters",
+		label: "Accept PiHCA Filters",
+		description: "Version explicit no-filter settings or reviewed size/intensity filters. Non-empty filters require accepted exclusion evidence.",
+		parameters: Type.Object({ review: Type.String(), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const result = await runWorkflow(WORKFLOW_SCRIPT, ["--workflow-state", workflow, "accept-filters", "--review", params.review]);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_review_filters",
+		label: "Review PiHCA Filters",
+		description: "Apply proposed filters to accepted pilot labels and show before/after exclusion overlays for human or vision review.",
+		parameters: Type.Object({ segmentation_review: Type.String(), mode: Type.Optional(Type.String()), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			if (state.phase !== "filter_review_required") return { content: [{ type: "text", text: `Cannot review filters during phase ${state.phase}.` }] };
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const mode = params.mode ?? "human";
+			const reviewDir = resolve(dirname(workflow), "filter-review");
+			const action = mode === "human" ? "start" : "build";
+			const result = await runWorkflow(FILTER_REVIEW_SCRIPT, [action, "--workflow-state", workflow,
+				"--review", params.segmentation_review, "--output-dir", reviewDir], 10 * 60_000);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state, reviewDir } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_record_heldout",
+		label: "Record PiHCA Held-Out Validation",
+		description: "Validate and record independent held-out evidence after its visual review is complete.",
+		parameters: Type.Object({ validation: Type.String(), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const result = await runWorkflow(WORKFLOW_SCRIPT, ["--workflow-state", workflow, "record-heldout", "--validation", params.validation]);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_run_heldout",
+		label: "Run PiHCA Held-Out Validation",
+		description: "Run the accepted configuration on deterministic untouched wells and open visual review for every held-out field.",
+		parameters: Type.Object({ workers: Type.Optional(Type.Number()), mode: Type.Optional(Type.String()), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			if (state.phase !== "heldout_validation_required") return { content: [{ type: "text", text: `Cannot run held-out validation during phase ${state.phase}.` }] };
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const result = await runWorkflow(HELDOUT_SCRIPT, ["run", "--workflow-state", workflow,
+				"--workers", String(params.workers ?? 1), "--mode", params.mode ?? "human"], 60 * 60_000);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_approve_release",
+		label: "Approve PiHCA Release",
+		description: "Create an immutable release binding config, runtime, manifest, all stage reviews, held-out evidence, and named approval.",
+		parameters: Type.Object({ operator: Type.String(), reviewer: Type.String(), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			if (!releaseApprovalTurn) return { content: [{ type: "text", text: "Release creation requires explicit user approval in the current turn, including the named operator and reviewer." }], details: { state, error: "approval required" } };
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const result = await runWorkflow(RELEASE_SCRIPT, ["create", "--workflow-state", workflow, "--operator", params.operator, "--reviewer", params.reviewer]);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_run_canary",
+		label: "Run PiHCA Production Canary",
+		description: "Run one untouched well with the exact approved release before production approval.",
+		parameters: Type.Object({ well: Type.Optional(Type.String()), gpus: Type.Optional(Type.String()), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const args = ["--workflow-state", workflow, "canary", "--gpus", params.gpus ?? "auto"];
+			if (params.well) args.push("--well", params.well);
+			const result = await runWorkflow(PRODUCTION_SCRIPT, args, 60 * 60_000);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_submit_batch",
+		label: "Submit Approved PiHCA Plate",
+		description: "After explicit user approval, submit one release and one plate to the guarded queue with parallel wells.",
+		parameters: Type.Object({ operator: Type.String(), workers: Type.Optional(Type.Number()), retries: Type.Optional(Type.Number()), gpus: Type.Optional(Type.String()), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			if (!batchApprovalTurn) return { content: [{ type: "text", text: "Batch submission requires explicit user approval in the current turn." }], details: { state, error: "approval required" } };
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const result = await runWorkflow(PRODUCTION_SCRIPT, ["--workflow-state", workflow, "submit", "--operator", params.operator,
+				"--workers", String(params.workers ?? 1), "--retries", String(params.retries ?? 1), "--gpus", params.gpus ?? "auto"]);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_status",
+		label: "PiHCA Status",
+		description: "Report the persisted workflow phase and journaled production progress without rediscovery.",
+		parameters: Type.Object({ workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const script = state.phase === "batch_running" ? PRODUCTION_SCRIPT : WORKFLOW_SCRIPT;
+			const action = state.phase === "batch_running" ? ["--workflow-state", workflow, "status"] : ["--workflow-state", workflow, "status"];
+			const result = await runWorkflow(script, action);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_complete_plate_qc",
+		label: "Complete PiHCA Plate QC",
+		description: "Validate an approved plate-level visual review, generate final numeric and HTML reports, and create a portable share bundle.",
+		parameters: Type.Object({ review: Type.String(), workflow_state: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			if (state.phase !== "plate_qc_required") return { content: [{ type: "text", text: `Cannot complete plate QC during phase ${state.phase}.` }] };
+			const workflow = params.workflow_state ?? state.workflowState;
+			if (!workflow) return { content: [{ type: "text", text: "No active PiHCA workflow state." }] };
+			const result = await runWorkflow(PRODUCTION_SCRIPT, ["--workflow-state", workflow, "complete-plate-qc", "--review", params.review], 10 * 60_000);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_review_plate",
+		label: "Review PiHCA Plate",
+		description: "Generate the production report and open sampled plate overlays for final human QC.",
+		parameters: Type.Object({ mode: Type.Optional(Type.String()) }),
+		async execute(_toolCallId, params) {
+			if (state.phase !== "plate_qc_required" || !state.workflowState) return { content: [{ type: "text", text: `Cannot review plate during phase ${state.phase}.` }] };
+			const workflow = JSON.parse(readFileSync(state.workflowState, "utf8")) as { batch_run?: string };
+			if (!workflow.batch_run) return { content: [{ type: "text", text: "Workflow has no production run directory." }] };
+			const result = await runWorkflow(PLATE_REVIEW_SCRIPT, [params.mode === "automated" ? "build" : "start", "--run-dir", workflow.batch_run], 10 * 60_000);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
+		},
+	});
+
+	pi.registerTool({
+		name: "pihca_archive_staging",
+		label: "Archive PiHCA Staging",
+		description: "Move stale staging directories into timestamped recovery storage without deleting evidence.",
+		parameters: Type.Object({ run_dir: Type.String() }),
+		async execute(_toolCallId, params) {
+			const result = await runWorkflow(RECOVER_SCRIPT, ["--run-dir", params.run_dir]);
+			return { content: [{ type: "text", text: result.code === 0 ? result.stdout : result.stderr || result.stdout }], details: { state } };
 		},
 	});
 
@@ -225,6 +479,11 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 	});
 
 	pi.on("input", async (event, ctx) => {
+		releaseApprovalTurn = state.phase === "release_approval_required"
+			&& /\bapprove\b[\s\S]*\brelease\b|\brelease\b[\s\S]*\bapprove\b/i.test(event.text);
+		batchApprovalTurn = state.phase === "batch_approval_required"
+			&& (/\b(?:approve|approved|run|start|submit|proceed)\b[\s\S]*\b(?:batch|plate|production)\b/i.test(event.text)
+				|| /^\s*(?:yes|y|approved?|proceed)\s*[.!]?\s*$/i.test(event.text));
 		if (event.text.includes("[PiHCA router:")) return { action: "continue" };
 		if (TRIGGER.test(event.text)) {
 			if (state.active && !extractExistingPath(event.text, ctx.cwd)) {
@@ -266,21 +525,21 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", (event) => {
 		if (!state.active) return undefined;
-		return { systemPrompt: `${event.systemPrompt}\n\n## Active PiHCA Assay Session\nUse the installed high-content-microscopy workflow and its pihca_prepare, pihca_tune_nuclei, and pihca_review_nuclei tools. Act as a rigorous microscopy assay expert and advance exactly one phase per decision. Never invoke skill_manage, repeat intake, infer biological treatment from image metadata, choose segmentation by object count, or submit an unapproved batch.\n${statePrompt(state)}` };
+			return { systemPrompt: `${event.systemPrompt}\n\n## Active PiHCA Assay Session\nUse only the registered pihca_* tools for workflow transitions. Act as a rigorous microscopy assay expert and advance exactly one guarded phase per decision. Never invoke skill_manage, repeat intake, infer treatment from image metadata, choose segmentation by count, invent shell commands, mutate approved artifacts, or submit an unapproved batch.\n${statePrompt(state)}` };
 	});
 
 	pi.on("tool_call", (event) => {
 		if (intakeOnlyTurn) return { block: true, reason: "PiHCA intake is complete; present its result and await the next decision." };
-		if (!state.active || state.phase === "pilot_segmentation_required" || state.phase === "runtime_setup_required") return undefined;
+		if (!state.active) return undefined;
 		if (event.toolName === "skill_manage") return { block: true, reason: "PiHCA is already active; do not invoke skill_manage." };
 		if (event.toolName === "bash") {
 			const command = String((event.input as { command?: string }).command ?? "");
-			if (/\bhca_(?:preconfigure|metadata)\.py\b|\b(?:find|ls\s+-R|grep\s+-r)\b/.test(command)) {
-				return { block: true, reason: "Use authoritative intake state and pihca_prepare instead of ad hoc discovery or direct preconfiguration commands." };
+			if (/\bhca_[a-z0-9_]+\.py\b|\bpython\S*\s+-m\s+hca_[a-z0-9_]+\b|\bpihca(?:-(?:runner|queue))?\s+(?:runner|queue|release|production|workflow)\b|\bpihca-(?:runner|queue)\b|\b(?:find|ls\s+-R|grep\s+-r)\b/.test(command)) {
+				return { block: true, reason: "Use the guarded pihca_* workflow tools instead of direct analysis, production, or discovery commands." };
 			}
 		}
 		return undefined;
 	});
 
-	pi.on("agent_end", () => { intakeOnlyTurn = false; });
+	pi.on("agent_end", () => { intakeOnlyTurn = false; releaseApprovalTurn = false; batchApprovalTurn = false; });
 }

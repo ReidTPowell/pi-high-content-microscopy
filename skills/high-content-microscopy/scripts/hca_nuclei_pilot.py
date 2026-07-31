@@ -61,6 +61,7 @@ def main() -> int:
     state.update({
         "phase": "nuclei_review_required",
         "pilot": str(pilot),
+        "pilot_field": field,
         "nuclei_candidates": str(candidates / "candidates.json"),
         "next_action": (
             "Open human review or perform structured vision review of every raw/overlay candidate. "
