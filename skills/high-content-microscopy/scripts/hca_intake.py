@@ -46,15 +46,15 @@ def main() -> int:
     plates = discover_plates(root)
     if not plates:
         plates = [root]
-    output = args.output_dir or default_output_dir(root) / "intake"
-    output.mkdir(parents=True, exist_ok=True)
     acquisitions = [describe(plate) for plate in plates]
+    output = args.output_dir or ((default_output_dir(plates[0]) / "intake") if len(plates) == 1 else (root / ".pihca" / "intake"))
+    output.mkdir(parents=True, exist_ok=True)
     payload = {
         "schema_version": 1, "input": str(root), "status": "plate_selection_required" if len(acquisitions) > 1 else "assay_questions_required",
         "acquisitions": acquisitions,
         "questions": [
             "Which acquisition should be piloted, if more than one is listed?",
-            "What is the biological endpoint and which wells are controls?",
+            "What is the biological endpoint and which wells are controls, or should segmentation be optimized blinded to treatment?",
             "Confirm the channel roles and the primary and secondary objects to segment.",
             "Should the secondary cell-boundary model use the primary nuclear raw image as guidance?",
         ],

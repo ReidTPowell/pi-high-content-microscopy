@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import itertools
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +31,32 @@ def candidates(diameters, flows, cellprobs, limit: int) -> list[dict]:
     return grid
 
 
+def load_cellpose(args):
+    try:
+        import numpy
+        import tifffile
+        import torch
+        from cellpose import models
+    except ImportError as error:
+        raise RuntimeError(f"Cellpose runtime is incomplete: {error}") from error
+    image = tifffile.imread(args.image)
+    if image.ndim != 2:
+        raise RuntimeError("Cellpose tuning expects one 2D channel image")
+    if args.nuclear_image:
+        nuclear = tifffile.imread(args.nuclear_image)
+        if nuclear.shape != image.shape:
+            raise RuntimeError("--nuclear-image must match --image dimensions")
+        model_input, channels = numpy.stack([image, nuclear], axis=-1), [1, 2]
+    else:
+        model_input, channels = image, [0, 0]
+    lock_path = Path(os.environ.get("HCA_MODEL_CACHE_LOCK", "/tmp/pi-hca-model-download.lock"))
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        model = models.CellposeModel(gpu=args.gpu and torch.cuda.is_available(), model_type=args.model)
+    return model, model_input, channels, tifffile, numpy
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", required=True, type=Path)
@@ -49,26 +77,22 @@ def main() -> int:
         parser.error("output directory is not empty; choose a new pilot directory")
     try:
         grid = candidates(values(args.diameters, True), values(args.flow_thresholds), values(args.cellprob_thresholds), args.max_candidates)
+        model, model_input, channels, tifffile, numpy = load_cellpose(args)
     except ValueError as error:
+        parser.error(str(error))
+    except RuntimeError as error:
         parser.error(str(error))
     script_dir = Path(__file__).parent
     results = []
     for number, candidate in enumerate(grid, start=1):
         output = args.output_dir / f"candidate-{number:02d}" / "labels.tif"
-        command = [sys.executable, str(script_dir / "hca_segment.py"), "--image", str(args.image), "--output", str(output),
-                   "--engine", "cellpose", "--model", args.model, "--flow-threshold", str(candidate["flow_threshold"]),
-                   "--cellprob-threshold", str(candidate["cellprob_threshold"])]
-        if candidate["diameter"] is not None:
-            command.extend(["--diameter", str(candidate["diameter"])])
-        if args.nuclear_image:
-            command.extend(["--nuclear-image", str(args.nuclear_image)])
-        if args.gpu:
-            command.append("--gpu")
-        if args.no_normalize:
-            command.append("--no-normalize")
-        process = subprocess.run(command, capture_output=True, text=True)
-        result = {"id": f"candidate-{number:02d}", "parameters": candidate, "labels": str(output), "returncode": process.returncode}
-        if process.returncode == 0:
+        result = {"id": f"candidate-{number:02d}", "parameters": candidate, "labels": str(output), "returncode": 0}
+        try:
+            options = {"diameter": candidate["diameter"], "channels": channels, "normalize": not args.no_normalize,
+                       "flow_threshold": candidate["flow_threshold"], "cellprob_threshold": candidate["cellprob_threshold"]}
+            labels = model.eval([model_input], **options)[0][0]
+            output.parent.mkdir(parents=True, exist_ok=True)
+            tifffile.imwrite(output, labels.astype(numpy.uint32))
             measure = output.with_name("measurements.json")
             subprocess.run([sys.executable, str(script_dir / "hca_measure.py"), "--labels", str(output), "--image", str(args.image), "--output", str(measure)], check=True, capture_output=True, text=True)
             overlay = output.with_name("overlay.tif")
@@ -86,8 +110,8 @@ def main() -> int:
                 else:
                     relationship = json.loads((relationship_dir / "relationships.json").read_text())
                     result["relationship"] = {key: relationship[key] for key in ("nuclei", "cells", "assigned", "orphan", "ambiguous")}
-        else:
-            result["error"] = process.stderr[-4000:]
+        except Exception as error:
+            result.update({"returncode": 2, "error": str(error)[-4000:]})
         results.append(result)
     payload = {"status": "review_required", "image": str(args.image), "model": args.model,
                "reference_nuclei": str(args.reference_nuclei) if args.reference_nuclei else None, "candidates": results,

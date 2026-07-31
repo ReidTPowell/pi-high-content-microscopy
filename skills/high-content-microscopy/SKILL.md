@@ -17,17 +17,34 @@ python3 <skill-dir>/scripts/hca_intake.py --input <user-path>
 
 Do not recursively search `/home`, repeatedly enumerate TIFFs, inspect sidecars one by one, or invoke legacy project skills. `hca_intake.py` discovers HCS.ai acquisitions from `image_metadata_*.csv` and uses those tables for a bounded inventory. See [HCS.ai navigation](references/hcsai.md).
 
-Report the acquisition inventory and ask the four returned assay questions together. For multiple acquisitions, require one plate selection. Offer a suitable preconfiguration, but do not segment or submit a batch during intake.
+Report the acquisition inventory and ask only for one plate selection when multiple acquisitions exist. After selection, ask the assay-contract questions together. Offer a suitable preconfiguration, but do not segment or submit a batch during intake.
 
 ## Build The Assay Contract
 
-After channel roles, biological endpoint, controls, objects, and one acquisition are known, copy and version a draft config. Then run:
+After channel roles, objects, nuclear guidance, optimization mode, and one acquisition are known, use the Pi `pihca_prepare` tool. Treatment identities and controls may remain unknown during explicitly blinded segmentation optimization. The tool versions the draft config and runs the equivalent of:
 
 ```sh
 python3 <skill-dir>/scripts/hca_preconfigure.py --input <acquisition> --config <draft-config> [--plate-map <csv>]
 ```
 
 This curates the image manifest and plate metadata, validates dimensions and runtime, plans parallel wells, samples deterministic QC images, and creates a pending review. Use one representative control and one representative treatment well when possible. Every pilot revision gets a new output directory.
+
+Do not search image metadata for treatment assignments. If no plate map is available, propose a blinded, morphology-diverse segmentation pilot and record that the plate map is still required before biological analysis or production approval.
+
+## Advance The Session
+
+Use this state order and never restart an earlier phase unless the user changes the input or assay contract:
+
+1. Intake one directory.
+2. Select exactly one acquisition.
+3. Confirm segmentation roles and human or automated optimization.
+4. Call `pihca_prepare`; do not just show its command.
+5. Call `pihca_tune_nuclei` to tune nuclei on deterministic paired pilot fields.
+6. Call `pihca_review_nuclei` in human or automated mode, then tune cells with nuclear guidance and relationship QC.
+7. Review filters and held-out fields.
+8. Obtain named approval, then run parallel wells for this plate only.
+
+When the user says `continue`, execute the next safe state transition. Do not repeat a proposal, repeat intake, inspect arbitrary sidecars, or narrate an action without performing it.
 
 ## Execute The Configured Graph
 

@@ -10,6 +10,12 @@ pi install github:ReidTPowell/pi-high-content-microscopy
 
 The package includes both the assay-expert skill and a lightweight Pi router. When a user says `piHCA` with an existing path, the router runs the bounded HCS.ai intake before the model acts, injects the compact inventory, and blocks broad fallback searches for that intake turn.
 
+Set `PIHCA_PYTHON` to the locked analysis interpreter used by Pi. Without it, intake still works and preconfiguration reports missing engines instead of silently using a different environment:
+
+```sh
+export PIHCA_PYTHON=/opt/pi-hca/envs/0.5.0/bin/python
+```
+
 Create a reproducible image-analysis runtime once per release:
 
 ```sh
@@ -65,6 +71,8 @@ The assay configuration can activate this graph directly: `nucleus` segmentation
 ## Guided Pilot And Filtering
 
 Say `piHCA` to begin expert intake. Pi first inspects the file structure and then asks for the biological endpoint, controls, channel roles, primary/secondary objects, and the expected morphology. It should offer a non-destructive preconfiguration packet rather than starting a batch run:
+
+The router persists the workflow phase in the Pi session and exposes deterministic `pihca_prepare`, `pihca_tune_nuclei`, and `pihca_review_nuclei` tools. A request such as “these images” uses Pi's current directory, ordinal plate choices are resolved from intake, and `continue` advances the current phase instead of restarting discovery.
 
 ```sh
 python3 skills/high-content-microscopy/scripts/hca_preconfigure.py \
