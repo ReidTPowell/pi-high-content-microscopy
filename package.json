@@ -23,6 +23,9 @@
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {"optional": true}
+  },
   "scripts": {
     "test": "python3 -m unittest discover -s tests -v",
     "check": "python3 -m compileall -q skills tests && npm run test",
