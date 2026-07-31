@@ -26,6 +26,8 @@ skills/high-content-microscopy/scripts/setup_env.sh \
   --lock-file runtime-lock.json
 ```
 
+The environment installs a non-editable PiHCA package by default so the captured runtime cannot drift with source edits. Use `--editable` only for development environments and do not approve production releases from them.
+
 ## Quick start
 
 ```sh

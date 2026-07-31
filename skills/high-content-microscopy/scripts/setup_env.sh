@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: %s --env <path> [--extras <comma-separated extras>] [--lock-file <path>] [--python <interpreter>]\n' "$0"
+  printf 'Usage: %s --env <path> [--extras <comma-separated extras>] [--lock-file <path>] [--python <interpreter>] [--editable]\n' "$0"
   printf 'Example: %s --env .venv-hca --extras ome,qc,review,cellpose --lock-file runtime-lock.json\n' "$0"
 }
 
@@ -10,12 +10,14 @@ env_path=""
 extras="all"
 lock_file=""
 python_bin="python3"
+editable=false
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --env) env_path="$2"; shift 2 ;;
     --extras) extras="$2"; shift 2 ;;
     --lock-file) lock_file="$2"; shift 2 ;;
     --python) python_bin="$2"; shift 2 ;;
+    --editable) editable=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -24,7 +26,9 @@ done
 "$python_bin" -m venv "$env_path"
 "$env_path/bin/python" -m pip install --upgrade pip
 repo_root=$(cd "$(dirname "$0")/../../.." && pwd)
-"$env_path/bin/python" -m pip install -e "${repo_root}[${extras}]"
+install_args=(install)
+if $editable; then install_args+=(-e); fi
+"$env_path/bin/python" -m pip "${install_args[@]}" "${repo_root}[${extras}]"
 "$env_path/bin/python" - "$repo_root" <<'PY'
 import importlib.metadata
 import pathlib
