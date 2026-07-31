@@ -8,6 +8,16 @@ A Pi-native, configuration-first skill for high-content microscopy analysis. It 
 pi install github:ReidTPowell/pi-high-content-microscopy
 ```
 
+The package includes both the assay-expert skill and a lightweight Pi router. When a user says `piHCA` with an existing path, the router runs the bounded HCS.ai intake before the model acts, injects the compact inventory, and blocks broad fallback searches for that intake turn.
+
+Create a reproducible image-analysis runtime once per release:
+
+```sh
+skills/high-content-microscopy/scripts/setup_env.sh \
+  --env .venv-pihca --extras qc,review,cellpose \
+  --lock-file runtime-lock.json
+```
+
 ## Quick start
 
 ```sh
@@ -38,7 +48,7 @@ The package does not ship a monolithic analysis script. Microscopy assays vary m
 
 ## Optional engines
 
-Install only the reader or analysis engine needed for the assay: `pip install '.[ome]'`, `'.[bioformats]'`, `'.[qc]'`, `'.[cellpose]'`, or `'.[stardist]'`. Each segmentation engine writes a labeled TIFF; the downstream measurement layer must retain the manifest identifiers and model provenance.
+Install only the reader or analysis engine needed for the assay: `pip install '.[ome]'`, `'.[bioformats]'`, `'.[qc]'`, `'.[review]'`, `'.[cellpose]'`, or `'.[stardist]'`. Each segmentation engine writes a labeled TIFF; the downstream measurement layer retains manifest identifiers and model provenance.
 
 `hca_runner.py` executes a validated single-plate work plan with atomic well outputs, retries, resume markers, structured failures, provenance hashes, and GPU admission control. Its command template receives `{well}`, `{manifest}`, `{output}`, and `{gpu}`.
 
@@ -96,6 +106,20 @@ python3 skills/high-content-microscopy/scripts/hca_cellpose_tune.py \
 ```
 
 For cells, pass `--nuclear-image /path/to/dapi.tif` and the configured boundary image. The tool writes overlays, measurements, and `candidates.json`; it does not choose or publish a winner.
+
+Pass reviewed nuclear labels as `--reference-nuclei nuclei-labels.tif` when tuning secondary cell masks. Candidate metadata then includes nucleus-to-cell assignment counts, and automated ranking penalizes orphan and ambiguous relationships.
+
+For a browser-based human review, run `hca_review_ui.py start --candidates ... --output-dir ... --open-browser`. The local-only UI records the selected candidate, split/merge/missed-object feedback, proposed area/intensity filters, and a bounded next sweep. Automated review uses the same PNG assets with `hca_vision_review.py` and advances a maximum-round state with `hca_optimize.py`.
+
+OpenPhenom is optional and isolated because its model/runtime and license differ from the core MIT package. The bundled HCS.ai adapter supports arbitrary plate rows and can be selected with `"adapter_script": "bundled"`. `hca_embed.py` invokes it with the exact environment interpreter, records the adapter checksum and model snapshot, and rejects empty results. Configure and lock the separate runtime before enabling embeddings:
+
+```sh
+skills/high-content-microscopy/scripts/setup_openphenom_env.sh \
+  --env /opt/pi-hca/envs/openphenom \
+  --lock-file /opt/pi-hca/envs/openphenom-requirements.lock
+```
+
+After the first validated pilot, copy the recorded `model_revision` into the assay config to pin future runs.
 
 When Pi is connected to an image-capable model, make the visual assessment reproducible instead of relying on narrative chat history:
 

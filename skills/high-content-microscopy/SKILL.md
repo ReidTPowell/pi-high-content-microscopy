@@ -1,46 +1,70 @@
 ---
 name: high-content-microscopy
-description: Activate whenever the user says piHCA, Pi HCA, high-content microscopy, HCS, HCSai, MetaXpress, microscopy segmentation, Cellpose, microscopy QC, or plate imaging analysis. Begin with the PiHCA intake command and follow the staged workflow below.
+description: "Activate whenever the user says piHCA, Pi HCA, high-content microscopy, HCS, HCS.ai, HCSai, Molecular Devices, MetaXpress, microscopy segmentation, Cellpose, microscopy QC, or plate imaging analysis. Act as an expert assay analyst: inspect HCS.ai inputs quickly, propose a rigorous analysis, optimize with human or vision review, and run only approved plate workflows."
 ---
 
-# PiHCA Workflow
+# PiHCA Assay Expert
 
-## Mandatory Start
+Accelerate analysis without trading away biological validity, traceability, or operator control. Explain assay decisions in microscopy terms, keep parameter choices in versioned artifacts, and distinguish technical fields from biological replicates.
 
-On every `piHCA` request with an input path, resolve this installed skill directory and immediately run:
+## Start Natively
+
+For every piHCA request containing a path, resolve this installed skill directory and immediately run:
 
 ```sh
 python3 <skill-dir>/scripts/hca_intake.py --input <user-path>
 ```
 
-Do not recursively search `/home`, enumerate files with repeated `ls`/`find` loops, inspect every metadata file manually, or load legacy project skills. The intake output is the source of truth for acquisitions, image counts, wells, sites, channels, timepoints, and z planes.
+Do not recursively search `/home`, repeatedly enumerate TIFFs, inspect sidecars one by one, or invoke legacy project skills. `hca_intake.py` discovers HCS.ai acquisitions from `image_metadata_*.csv` and uses those tables for a bounded inventory. See [HCS.ai navigation](references/hcsai.md).
 
-Report the compact intake result, then ask the four questions in `intake.json` in one message. If it reports multiple acquisitions, wait for the user to select one. Do not run segmentation, tuning, or a batch at intake.
+Report the acquisition inventory and ask the four returned assay questions together. For multiple acquisitions, require one plate selection. Offer a suitable preconfiguration, but do not segment or submit a batch during intake.
 
-## Preconfiguration And Pilot
+## Build The Assay Contract
 
-After the user selects one acquisition and confirms the assay facts, choose or create a draft versioned config and run:
+After channel roles, biological endpoint, controls, objects, and one acquisition are known, copy and version a draft config. Then run:
 
 ```sh
-python3 <skill-dir>/scripts/hca_preconfigure.py --input <acquisition> --config <draft-config>
+python3 <skill-dir>/scripts/hca_preconfigure.py --input <acquisition> --config <draft-config> [--plate-map <csv>]
 ```
 
-This creates a manifest, validation report, well plan, seeded QC, readiness report, and pending review. It does not start analysis. Run `hca_doctor.py` and `hca_preflight.py` before a pilot. Use one representative well and a new output directory for every config revision; never overwrite earlier pilot artifacts.
+This curates the image manifest and plate metadata, validates dimensions and runtime, plans parallel wells, samples deterministic QC images, and creates a pending review. Use one representative control and one representative treatment well when possible. Every pilot revision gets a new output directory.
 
-## Segmentation Optimization
+## Execute The Configured Graph
 
-Treat primary nuclei and secondary cell boundaries as separate segmentation decisions. The secondary Cellpose model may use the primary **raw image** as guidance via `use_nuclear_image`; filtered labels are then related by `hca_relate.py`.
+Use only enabled stages, in this order:
 
-1. Use `hca_cellpose_tune.py` for a bounded sweep of diameter, flow threshold, and cell-probability threshold on one pilot image. It writes overlay and measurement artifacts per candidate.
-2. Use an image-capable model to inspect each overlay against its raw image. Create/finalize an `hca_vision_review.py` artifact. Do not choose candidates by object count alone.
-3. Preserve raw labels. `hca_filter.py` applies reviewed size/intensity filters, writes label-level audits with centroids, then supplies filtered labels to relation and measurement.
-4. Use `hca_filter_tune.py` only to propose filter limits from pilot distributions. Review its predicted excluded labels visually; copy only approved limits to a new config version.
-5. Require named human approval in `hca_review.py` before config publication or batch submission.
+1. Curate manifest and plate-map metadata with `hca_metadata.py`.
+2. Read selected HCS.ai planes and optionally apply recorded background subtraction with `hca_preprocess.py`.
+3. Segment primary nuclei with Cellpose and preserve raw labels.
+4. Segment secondary cells with Cellpose, optionally using the nuclear raw image as guidance, and preserve raw labels.
+5. Apply reviewed size/intensity filters with `hca_filter.py`.
+6. Assign nuclei to cells and derive same-ID cytoplasm with `hca_relate.py`; report orphan, low-overlap, and ambiguous objects.
+7. Measure each enabled compartment with `hca_measure.py`.
+8. Optionally invoke the checksummed OpenPhenom adapter with `hca_embed.py` in its isolated environment.
+9. Generate overlays, numeric summaries, and `hca_report.py` HTML figures.
 
-Cellpose options belong in each segmentation stage: stage-level `diameter` and `gpu`; `cellpose.flow_threshold`, `cellprob_threshold`, `normalize`, `tile_overlap`, `niter`, `min_size`, and `augment`.
+`hca_pipeline.py` executes stages 2-8 for one well. Never infer channel meaning from intensity or wavelength alone. See [analysis contract](references/analysis-contract.md).
 
-## Production
+## Optimize Segmentation
 
-Use `hca_runner.py` for one validated plate with bounded parallel wells. Use `hca_queue.py` only after an explicit operator request, a published approved config, and a matching runtime lock. Plates remain sequential; wells may run in parallel. Results default to `<Barcode>_piHCA` beside raw input. Use `hca_share.py` for portable bundles without source TIFFs.
+Tune nuclei and cell boundaries separately. Run bounded Cellpose sweeps with `hca_cellpose_tune.py`. For cell candidates, pass `--reference-nuclei` so ranking includes relational QC. Object count alone is never an objective. See [optimization protocol](references/optimization.md).
 
-Return compact manifest/QC/review/relationship summaries to the user. Keep stage logs and large artifacts in their result directory. Never claim biological conclusions without controls, reviewed overlays, recorded exclusions, and an appropriate experimental unit.
+### Human-In-The-Loop
+
+Build and open the local review interface:
+
+```sh
+python3 <skill-dir>/scripts/hca_review_ui.py start --candidates <candidates.json> --output-dir <review-dir> --open-browser
+```
+
+Give the returned URL to the user. Poll `status` without blocking the conversation. Apply explicit split/merge/missed-object feedback to a bounded next sweep. Treat entered area/intensity limits as proposals until exclusions are visible in overlays. A named human approval completes this mode.
+
+### Automated Vision Loop
+
+Use `hca_review_ui.py build` to create side-by-side PNG assets and `hca_vision_review.py template` for the review contract. Inspect every raw/overlay pair with the session's image-capable model, fill all scores/issues/uncertainty, and finalize. Advance `hca_optimize.py` for at most the configured rounds. Refine diameter, flow threshold, and cell-probability threshold from observed errors; include orphan and ambiguous assignment penalties for secondary objects. A score above threshold stops optimization but still requires named human approval before publication or batch use.
+
+## Production And Sharing
+
+Run one validated plate at a time with `hca_runner.py`; parallelize wells only within that plate. Relationship QC flags are preserved in completed artifacts so they can be reviewed; use `--fail-on-qc` when the operating policy requires a nonzero well job. Use queue submission only after explicit operator approval, a published config, and a matching runtime lock. Default output is `<Barcode>_piHCA` beside the barcode-level input directory. Generate a plate report, then use `hca_share.py` for a portable bundle that excludes raw TIFFs.
+
+Do not claim biological effects without reviewed controls, plate-map context, segmentation acceptance, exclusion audits, and statistics at the correct experimental unit. Surface failures and uncertainty instead of forcing assignments or continuing a batch.

@@ -1,13 +1,14 @@
 [project]
 name = "pi-high-content-microscopy"
-version = "0.3.1"
-requires-python = ">=3.9"
+version = "0.4.0"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 ome = ["tifffile>=2024.5"]
 bioformats = ["bioio>=3"]
 qc = ["numpy>=1.26", "scipy>=1.10", "tifffile>=2024.5"]
+review = ["numpy>=1.26", "tifffile>=2024.5", "Pillow>=10"]
 cellpose = ["cellpose>=3", "numpy>=1.26", "packaging>=23", "tifffile>=2024.5"]
 stardist = ["stardist>=0.9", "csbdeep>=0.8", "numpy>=1.26", "tifffile>=2024.5"]
 

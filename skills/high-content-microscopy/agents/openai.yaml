@@ -1,0 +1,6 @@
+interface:
+  display_name: "PiHCA Assay Expert"
+  short_description: "Optimize rigorous high-content microscopy assays"
+  default_prompt: "Use $high-content-microscopy to inspect this HCS.ai dataset and guide me through a rigorous pilot analysis."
+policy:
+  allow_implicit_invocation: true

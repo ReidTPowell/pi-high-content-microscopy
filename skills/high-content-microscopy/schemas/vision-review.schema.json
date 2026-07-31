@@ -6,7 +6,22 @@
   "properties": {
     "schema_version": {"const": 1},
     "reviewer": {"type": "string", "minLength": 1},
-    "candidate_reviews": {"type": "array", "minItems": 1},
+    "candidate_reviews": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "score", "acceptable"],
+        "properties": {
+          "id": {"type": "string"},
+          "score": {"type": "number", "minimum": 0, "maximum": 100},
+          "acceptable": {"type": "boolean"},
+          "issues": {"type": "array", "items": {"enum": ["oversegmentation", "undersegmentation", "false_positives", "missed_objects"]}},
+          "parameters": {"type": "object"},
+          "relationship": {"type": ["object", "null"]}
+        }
+      }
+    },
     "filter_reviews": {"type": "array"}
   }
 }

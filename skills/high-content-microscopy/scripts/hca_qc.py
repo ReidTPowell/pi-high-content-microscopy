@@ -16,7 +16,7 @@ def stratified_sample(records: list[dict], size: int, seed: int) -> list[dict]:
     for record in records:
         groups[(record.get("row"), record.get("column"), record.get("channel"), record.get("timepoint"))].append(record)
     randomizer = random.Random(seed)
-    selected = [randomizer.choice(values) for _, values in sorted(groups.items())]
+    selected = [randomizer.choice(values) for _, values in sorted(groups.items(), key=lambda item: tuple((v is None, str(v)) for v in item[0]))]
     if len(selected) > size:
         return randomizer.sample(selected, size)
     remaining = [record for record in records if record not in selected]

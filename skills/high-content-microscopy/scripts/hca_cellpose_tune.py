@@ -35,6 +35,9 @@ def main() -> int:
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--model", required=True)
     parser.add_argument("--nuclear-image", type=Path, help="Required when tuning a Cellpose cell-boundary model with nuclear guidance")
+    parser.add_argument("--reference-nuclei", type=Path,
+                        help="Reviewed nuclear labels used to score nucleus-to-cell relationships for secondary candidates")
+    parser.add_argument("--min-overlap", type=float, default=0.5)
     parser.add_argument("--diameters", default="auto")
     parser.add_argument("--flow-thresholds", default="0.4")
     parser.add_argument("--cellprob-thresholds", default="0.0")
@@ -71,10 +74,23 @@ def main() -> int:
             overlay = output.with_name("overlay.tif")
             subprocess.run([sys.executable, str(script_dir / "hca_overlay.py"), "--image", str(args.image), "--labels", str(output), "--output", str(overlay)], check=True, capture_output=True, text=True)
             result.update({"measurements": str(measure), "overlay": str(overlay), "object_count": json.loads(measure.read_text())["object_count"]})
+            if args.reference_nuclei:
+                relationship_dir = output.with_name("relationship")
+                relation_process = subprocess.run(
+                    [sys.executable, str(script_dir / "hca_relate.py"), "--nuclei", str(args.reference_nuclei),
+                     "--cells", str(output), "--output-dir", str(relationship_dir), "--min-overlap", str(args.min_overlap)],
+                    capture_output=True, text=True,
+                )
+                if relation_process.returncode:
+                    result.update({"returncode": relation_process.returncode, "error": relation_process.stderr[-4000:]})
+                else:
+                    relationship = json.loads((relationship_dir / "relationships.json").read_text())
+                    result["relationship"] = {key: relationship[key] for key in ("nuclei", "cells", "assigned", "orphan", "ambiguous")}
         else:
             result["error"] = process.stderr[-4000:]
         results.append(result)
-    payload = {"status": "review_required", "image": str(args.image), "model": args.model, "candidates": results,
+    payload = {"status": "review_required", "image": str(args.image), "model": args.model,
+               "reference_nuclei": str(args.reference_nuclei) if args.reference_nuclei else None, "candidates": results,
                "review_instruction": "Compare overlays against the raw image and select a candidate by biological boundary quality, not object count alone. Copy the selected values into the stage.cellpose configuration and rerun a pilot before approval."}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "candidates.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

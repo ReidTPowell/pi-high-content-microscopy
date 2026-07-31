@@ -24,3 +24,20 @@ class VisionReviewTests(unittest.TestCase):
     def test_finalization_requires_structured_scores(self):
         with self.assertRaises(ValueError):
             REVIEW.finalize({"reviewer": "vision-model", "candidate_reviews": [{"id": "candidate-01", "acceptable": True}]})
+
+    def test_relationship_failures_penalize_secondary_candidate(self):
+        payload = REVIEW.finalize({"reviewer": "vision-model", "candidate_reviews": [
+            {"id": "candidate-01", "score": 95, "acceptable": True,
+             "relationship": {"nuclei": 10, "orphan": 5, "ambiguous": 0}},
+            {"id": "candidate-02", "score": 90, "acceptable": True,
+             "relationship": {"nuclei": 10, "orphan": 0, "ambiguous": 0}},
+        ]})
+        self.assertEqual(payload["selected_candidate"]["id"], "candidate-02")
+
+    def test_all_rejected_candidates_retain_a_refinement_reference(self):
+        payload = REVIEW.finalize({"reviewer": "vision-model", "candidate_reviews": [
+            {"id": "candidate-01", "score": 55, "acceptable": False, "issues": ["false_positives"]}
+        ]})
+        self.assertIsNone(payload["selected_candidate"])
+        self.assertEqual(payload["status"], "refinement_required")
+        self.assertEqual(payload["reference_candidate"]["id"], "candidate-01")

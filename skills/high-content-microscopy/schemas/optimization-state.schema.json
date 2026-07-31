@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PiHCA bounded optimization state",
+  "type": "object",
+  "required": ["schema_version", "mode", "round", "max_rounds", "status", "candidate_history", "review_history"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "mode": {"enum": ["human", "automated"]},
+    "round": {"type": "integer", "minimum": 1},
+    "max_rounds": {"type": "integer", "minimum": 1},
+    "acceptance_score": {"type": "number", "minimum": 0, "maximum": 100},
+    "status": {"enum": ["review_required", "next_sweep_required", "human_approval_required", "human_intervention_required", "complete"]},
+    "candidate_history": {"type": "array", "items": {"type": "string"}},
+    "review_history": {"type": "array", "items": {"type": "string"}},
+    "next_sweep": {"type": ["object", "null"]}
+  }
+}

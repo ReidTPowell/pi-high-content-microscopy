@@ -17,6 +17,7 @@ def template(candidates: Path, audits: list[Path]) -> dict:
     for candidate in candidate_data.get("candidates", []):
         entries.append({"id": candidate["id"], "overlay": candidate.get("overlay"), "parameters": candidate["parameters"],
                         "object_count": candidate.get("object_count"), "score": None, "acceptable": None,
+                        "relationship": candidate.get("relationship"), "issues": [],
                         "oversegmentation": None, "undersegmentation": None, "boundary_quality": None, "notes": None})
     filter_entries = []
     for path in audits:
@@ -25,6 +26,7 @@ def template(candidates: Path, audits: list[Path]) -> dict:
                                "reviewed_source_labels": [], "recommended_filter": None,
                                "notes": "Inspect source_label and centroid_yx against the raw and overlay images."})
     return {"schema_version": 1, "status": "pending_vision_review", "reviewer": None,
+            "image": candidate_data.get("image"), "model": candidate_data.get("model"),
             "instructions": ["A vision-capable model must inspect every overlay against its raw image.",
                              "Score boundary quality from 0 to 100; lower scores indicate biologically implausible split, merge, missed, or spurious objects.",
                              "Do not select on object count alone. Record uncertainty and set acceptable=false when a candidate is not defensible.",
@@ -41,13 +43,22 @@ def finalize(review: dict) -> dict:
             raise ValueError(f"candidate {entry.get('id')} requires a score from 0 to 100")
         if not isinstance(entry.get("acceptable"), bool):
             raise ValueError(f"candidate {entry.get('id')} requires an acceptable true/false decision")
+        relationship = entry.get("relationship") or {}
+        nuclei = max(int(relationship.get("nuclei", 0)), 1)
+        entry["objective_score"] = round(
+            float(entry["score"]) - 30.0 * relationship.get("orphan", 0) / nuclei
+            - 40.0 * relationship.get("ambiguous", 0) / nuclei, 3
+        )
         if entry["acceptable"]:
             accepted.append(entry)
-    ranked = sorted(accepted, key=lambda entry: (-entry["score"], entry["id"]))
-    return {"schema_version": 1, "status": "human_approval_required", "reviewer": review["reviewer"],
-            "selected_candidate": ranked[0] if ranked else None, "ranked_acceptable_candidates": ranked,
+    ranked = sorted(accepted, key=lambda entry: (-entry["objective_score"], entry["id"]))
+    all_ranked = sorted(review.get("candidate_reviews", []), key=lambda entry: (-entry["objective_score"], entry["id"]))
+    return {"schema_version": 1, "status": "human_approval_required" if ranked else "refinement_required",
+            "reviewer": review["reviewer"],
+            "selected_candidate": ranked[0] if ranked else None, "reference_candidate": all_ranked[0] if all_ranked else None,
+            "ranked_acceptable_candidates": ranked,
             "filter_reviews": review.get("filter_reviews", []),
-            "decision_rule": "The top vision-scored acceptable candidate is a proposal only. A named human reviewer must approve the copied config values before publishing or batch submission."}
+            "decision_rule": "The top acceptable candidate is ranked by vision score with orphan and ambiguous relationship penalties. It remains a proposal until a named human approves the config."}
 
 
 def main() -> int:

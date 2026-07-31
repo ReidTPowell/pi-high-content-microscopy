@@ -18,11 +18,12 @@ def main() -> int:
         parser.error("analysis directory does not exist")
     bundle = args.output.resolve()
     bundle.parent.mkdir(parents=True, exist_ok=True)
-    allowed = {".json", ".jsonl", ".csv", ".md", ".txt", ".png", ".yaml", ".yml"}
+    allowed = {".json", ".jsonl", ".csv", ".html", ".md", ".txt", ".png", ".yaml", ".yml"}
+    derived_tiff_suffixes = ("labels.tif", "overlay.tif", "by-cell.tif")
     with tempfile.TemporaryDirectory() as temporary:
         staging = Path(temporary) / "analysis"
         for path in source.rglob("*"):
-            if path.is_file() and path.suffix.lower() in allowed:
+            if path.is_file() and (path.suffix.lower() in allowed or path.name.lower().endswith(derived_tiff_suffixes)):
                 target = staging / path.relative_to(source)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, target)

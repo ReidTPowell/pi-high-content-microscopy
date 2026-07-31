@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -50,3 +51,12 @@ class ValidationTests(unittest.TestCase):
         report = VALIDATE.validate([record(0, 0), record(1, 0), record(0, 1), record(1, 1)], config)
         self.assertFalse(report["ok"])
         self.assertIn("filter minimum area exceeds maximum area", " ".join(report["contract_errors"]))
+
+    def test_rejects_invalid_optimization_and_preprocessing(self):
+        config = json.loads(json.dumps(CONFIG))
+        config["analysis"]["optimization"] = {"mode": "unsupervised"}
+        config["analysis"]["preprocessing"] = {"background_subtraction": {"enabled": True, "percentile": 101}}
+        report = VALIDATE.validate([record(0, 0), record(1, 0)], config)
+        errors = " ".join(report["contract_errors"])
+        self.assertIn("optimization.mode", errors)
+        self.assertIn("percentile must be 0..100", errors)

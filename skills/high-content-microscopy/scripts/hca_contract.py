@@ -76,6 +76,33 @@ def validate_config(config: dict[str, Any]) -> list[str]:
     if isinstance(config.get("analysis"), dict) and not config["analysis"].get("unit_of_analysis"):
         errors.append("analysis.unit_of_analysis is required")
     segmentation = config.get("analysis", {}).get("segmentation", {}) if isinstance(config.get("analysis"), dict) else {}
+    preprocessing = config.get("analysis", {}).get("preprocessing", {}) if isinstance(config.get("analysis"), dict) else {}
+    background = preprocessing.get("background_subtraction", {}) if isinstance(preprocessing, dict) else {}
+    if background.get("enabled"):
+        if background.get("method", "percentile") not in {"percentile", "opening"}:
+            errors.append("analysis.preprocessing.background_subtraction.method must be percentile or opening")
+        percentile = background.get("percentile", 5.0)
+        if not isinstance(percentile, (int, float)) or not 0 <= percentile <= 100:
+            errors.append("analysis.preprocessing.background_subtraction.percentile must be 0..100")
+        radius = background.get("radius", 25)
+        if not isinstance(radius, int) or radius < 1:
+            errors.append("analysis.preprocessing.background_subtraction.radius must be a positive integer")
+    optimization = config.get("analysis", {}).get("optimization", {}) if isinstance(config.get("analysis"), dict) else {}
+    if optimization and optimization.get("mode", "human") not in {"human", "automated"}:
+        errors.append("analysis.optimization.mode must be human or automated")
+    if optimization and (not isinstance(optimization.get("max_rounds", 3), int) or optimization.get("max_rounds", 3) < 1):
+        errors.append("analysis.optimization.max_rounds must be a positive integer")
+    score = optimization.get("vision_acceptance_score", 90) if isinstance(optimization, dict) else 90
+    if not isinstance(score, (int, float)) or not 0 <= score <= 100:
+        errors.append("analysis.optimization.vision_acceptance_score must be 0..100")
+    embedding = config.get("analysis", {}).get("embedding", {}) if isinstance(config.get("analysis"), dict) else {}
+    if embedding.get("enabled") and not embedding.get("adapter_script"):
+        errors.append("analysis.embedding.adapter_script is required when embedding is enabled")
+    if embedding and embedding.get("provider", "openphenom") != "openphenom":
+        errors.append("analysis.embedding.provider must be openphenom")
+    measurement_image = config.get("analysis", {}).get("measurement_image", "corrected") if isinstance(config.get("analysis"), dict) else "corrected"
+    if measurement_image not in {"raw", "corrected"}:
+        errors.append("analysis.measurement_image must be raw or corrected")
     for stage_name in ("nucleus", "cell"):
         stage = segmentation.get(stage_name, {}) if isinstance(segmentation, dict) else {}
         criteria = stage.get("filter", {}) if isinstance(stage, dict) else {}

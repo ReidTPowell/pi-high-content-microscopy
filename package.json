@@ -1,20 +1,27 @@
 {
   "name": "pi-high-content-microscopy",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "description": "Configuration-first high-content microscopy analysis skill for Pi.",
   "license": "MIT",
   "keywords": ["pi-package", "pi", "microscopy", "high-content-screening", "HCS"],
   "files": [
+    "extensions",
     "skills/high-content-microscopy/SKILL.md",
+    "skills/high-content-microscopy/agents",
     "skills/high-content-microscopy/configs",
     "skills/high-content-microscopy/references",
     "skills/high-content-microscopy/schemas",
     "skills/high-content-microscopy/scripts/*.py",
+    "skills/high-content-microscopy/scripts/*.sh",
     "README.md", "LICENSE", "pyproject.toml"
   ],
   "pi": {
+    "extensions": ["./extensions"],
     "skills": ["./skills"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
   },
   "scripts": {
     "test": "python3 -m unittest discover -s tests -v",
