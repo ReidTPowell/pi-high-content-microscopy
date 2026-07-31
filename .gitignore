@@ -7,3 +7,4 @@ outputs/
 .pi/
 .venv*/
 *.egg-info/
+package-lock.json
