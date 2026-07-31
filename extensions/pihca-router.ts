@@ -50,7 +50,7 @@ interface WorkflowState {
 }
 
 function resolveCandidate(value: string, cwd: string): string | undefined {
-	const expanded = value.replace(/^~/, process.env.HOME ?? "");
+	const expanded = value.replace(/^~/, process.env.HOME ?? "").replace(/\\ /g, " ");
 	const candidate = isAbsolute(expanded) ? expanded : resolve(cwd, expanded);
 	return existsSync(candidate) ? candidate : undefined;
 }
@@ -663,6 +663,7 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 			if (!inputPath) {
 				return { action: "transform", text: `${event.text}\n\n[PiHCA router] Ask for one existing microscopy directory. Do not invoke skill_manage or use tools until the user supplies it.` };
 			}
+			if (ctx.hasUI) ctx.ui.notify("PiHCA is auditing persisted state and performing bounded HCS.ai intake.", "info");
 			const resume = await pi.exec(process.env.PIHCA_PYTHON ?? "python3", [RESUME_SCRIPT, "--input", inputPath], { timeout: 60_000 });
 			if (resume.code === 0) {
 				const payload = JSON.parse(resume.stdout) as { workflow_state: string; phase: Phase; selected_acquisition: string };
@@ -683,6 +684,7 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 				input: inputPath, acquisitions: payload.acquisitions, selectedAcquisition: payload.acquisitions.length === 1 ? payload.acquisitions[0].acquisition : undefined };
 			persist();
 			intakeOnlyTurn = true;
+			if (ctx.hasUI) ctx.ui.notify(`PiHCA intake complete: ${payload.acquisitions.length} acquisition(s).`, "info");
 			const presentation = JSON.stringify({
 				status: payload.status,
 				acquisitions: payload.acquisitions,
@@ -706,7 +708,9 @@ export default function pihcaRouter(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", (event) => {
 		if (!requested && !state.active) return undefined;
-		const guidance = state.active ? statePrompt(state) : "Ask for one existing microscopy directory, then use deterministic PiHCA intake.";
+		const guidance = intakeOnlyTurn
+			? "INTAKE-ONLY RESPONSE CONTRACT: use only facts in the injected authoritative intake JSON. Do not add channel names or roles, stains, dimensions, exposures, instrument settings, prior analyses, folder commentary, or inferred metadata. Do not call tools. If multiple acquisitions exist, show only acquisition path, image count, well count, numeric channels, sites/timepoints/z when present, then ask exactly which one plate to select."
+			: (state.active ? statePrompt(state) : "Ask for one existing microscopy directory, then use deterministic PiHCA intake.");
 		return { systemPrompt: `${event.systemPrompt}\n\n## PiHCA High-Content Microscopy Assistant\nThe PiHCA extension itself provides the assay persona; do not search for or invoke a separate skill. Rapidly recognize Molecular HCS.ai layouts and guide one plate at a time through assay contract, blinded pilot optimization, visual QC, held-out validation, immutable release, canary, resource smoke, parallel wells, and plate QC. Use only registered pihca_* tools for workflow transitions. Never infer treatment from image metadata, choose segmentation by count, fabricate visual scores, mutate workflow evidence, or submit an unapproved batch.\n${guidance}` };
 	});
 
