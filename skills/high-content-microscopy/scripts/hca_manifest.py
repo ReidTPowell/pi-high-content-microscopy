@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path
@@ -47,7 +48,12 @@ def generic_record(path: Path, root: Path) -> dict[str, Any]:
 
 def discover_plates(root: Path) -> list[Path]:
     """Return acquisition roots containing HCSai image metadata."""
-    return sorted({path.parent.parent for path in root.rglob("image_metadata_*.csv")})
+    plates = set()
+    for directory, children, files in os.walk(root):
+        children[:] = [child for child in children if not (child.endswith("_piHCA") or "_HCA" in child or child == ".pi")]
+        if any(name.startswith("image_metadata_") and name.endswith(".csv") for name in files):
+            plates.add(Path(directory).parent)
+    return sorted(plates)
 
 
 def metadata_index(root: Path) -> dict[str, dict[str, str]]:
