@@ -41,3 +41,30 @@ class VisionReviewTests(unittest.TestCase):
         self.assertIsNone(payload["selected_candidate"])
         self.assertEqual(payload["status"], "refinement_required")
         self.assertEqual(payload["reference_candidate"]["id"], "candidate-01")
+
+    def test_submission_requires_every_candidate_exactly_once(self):
+        template = {"candidate_reviews": [
+            {"id": "candidate-01", "parameters": {}},
+            {"id": "candidate-02", "parameters": {}},
+        ]}
+        with self.assertRaisesRegex(ValueError, "exactly one decision"):
+            REVIEW.submit(template, "vision-model", [
+                {"id": "candidate-01", "score": 90, "acceptable": True}
+            ])
+
+    def test_vision_proposal_requires_named_human_approval(self):
+        proposal = REVIEW.submit({"candidate_reviews": [{"id": "candidate-01", "parameters": {}}]},
+                                 "vision-model", [{"id": "candidate-01", "score": 92,
+                                                   "acceptable": True}])
+        self.assertEqual(proposal["status"], "human_approval_required")
+        approved = REVIEW.approve(proposal, "human-reviewer")
+        self.assertEqual(approved["review_status"], "approved")
+        self.assertEqual(approved["reviewer"], "human-reviewer")
+
+    def test_filter_recommendations_survive_human_gated_vision_proposal(self):
+        proposal = REVIEW.submit({"candidate_reviews": [{"id": "candidate-01", "parameters": {}}]},
+                                 "vision-model", [{"id": "candidate-01", "score": 92,
+                                                   "acceptable": True}],
+                                 {"nucleus": {"min_area_px": 25, "max_area_px": None}})
+        approved = REVIEW.approve(proposal, "human-reviewer")
+        self.assertEqual(approved["filter_recommendations"]["nucleus"]["min_area_px"], 25)

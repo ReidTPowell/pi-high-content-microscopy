@@ -13,6 +13,7 @@ from pathlib import Path
 from hca_contract import atomic_write_json
 from hca_queue import initialise, publish_release, register_worker, rows, submit
 from hca_release import approved_review, verify_release
+from hca_resources import admit_gpus, gpu_inventory, resolve_workers
 
 
 def next_directory(parent: Path, prefix: str) -> Path:
@@ -50,6 +51,55 @@ def canary(state: dict, state_path: Path, well: str | None, gpus: str) -> dict:
             "summary": state["canary"], "next_action": state["next_action"]}
 
 
+def config_requires_gpu(release: dict) -> bool:
+    config = json.loads(Path(release["config"]["path"]).read_text(encoding="utf-8"))
+    segmentation = config.get("analysis", {}).get("segmentation", {})
+    return (any(stage.get("enabled") and stage.get("gpu") for stage in segmentation.values()
+                if isinstance(stage, dict))
+            or config.get("analysis", {}).get("embedding", {}).get("enabled", False))
+
+
+def throughput_smoke(state: dict, state_path: Path, gpus: str) -> dict:
+    """Exercise one untouched well per admitted GPU before full batch approval."""
+    if state.get("phase") != "batch_approval_required":
+        raise ValueError(f"workflow phase is {state.get('phase')!r}, expected 'batch_approval_required'")
+    release = verify_release(Path(state["release"]))
+    plan = json.loads(Path(state["well_plan"]).read_text(encoding="utf-8"))
+    inventory = gpu_inventory()
+    admitted = admit_gpus(gpus, inventory=inventory)
+    workers = resolve_workers(0, gpu_ids=admitted, requires_gpu=config_requires_gpu(release),
+                              cpu_default=1, job_count=len(plan["jobs"]))
+    heldout = json.loads(Path(state["heldout_validation"]).read_text(encoding="utf-8"))
+    canary_summary = json.loads(Path(state["canary"]).read_text(encoding="utf-8"))
+    excluded = {state.get("pilot_field", {}).get("well"), *heldout.get("wells", []),
+                *(item.get("well") for item in canary_summary.get("results", []))}
+    eligible = [job for job in plan["jobs"] if job["well"] not in excluded]
+    if len(eligible) < workers:
+        raise ValueError(f"throughput smoke needs {workers} untouched wells; only {len(eligible)} remain")
+    if workers == 1:
+        selected = [eligible[len(eligible) // 2]]
+    else:
+        selected = [eligible[round(index * (len(eligible) - 1) / (workers - 1))] for index in range(workers)]
+    run_dir = next_directory(Path(state["output"]) / "runs", "throughput-smoke")
+    run_dir.mkdir(parents=True, exist_ok=False)
+    smoke_plan = run_dir / "plan.json"
+    atomic_write_json(smoke_plan, {**plan, "max_workers": workers, "jobs": selected,
+                                  "purpose": "pre-batch throughput smoke"})
+    command = [sys.executable, str(Path(__file__).parent / "hca_runner.py"),
+               "--plan", str(smoke_plan), "--run-dir", str(run_dir), "--release", state["release"],
+               "--workers", "0", "--retries", "0", "--gpus", gpus, "--fail-on-qc"]
+    process = subprocess.run(command, capture_output=True, text=True)
+    if process.returncode:
+        raise ValueError(process.stderr.strip() or process.stdout.strip() or "throughput smoke failed")
+    summary_path = run_dir / "run-summary.json"
+    state.update({"throughput_smoke": str(summary_path),
+                  "next_action": "Review canary and multi-resource smoke results, then explicitly approve the plate batch."})
+    atomic_write_json(state_path, state)
+    return {"status": "passed", "wells": [job["well"] for job in selected],
+            "resources": {"admitted_gpus": admitted, "workers": workers, "inventory": inventory},
+            "summary": str(summary_path), "next_action": state["next_action"]}
+
+
 def submit_batch(state: dict, state_path: Path, operator: str, workers: int, retries: int, gpus: str) -> dict:
     if state.get("phase") != "batch_approval_required":
         raise ValueError(f"workflow phase is {state.get('phase')!r}, expected 'batch_approval_required'")
@@ -59,6 +109,10 @@ def submit_batch(state: dict, state_path: Path, operator: str, workers: int, ret
     if not Path(state.get("canary", "")).is_file():
         raise ValueError("a successful production canary is required before batch submission")
     queue_dir = Path(state["output"]) / "queue"
+    plan = json.loads(Path(state["well_plan"]).read_text(encoding="utf-8"))
+    admitted = admit_gpus(gpus)
+    workers = resolve_workers(workers, gpu_ids=admitted, requires_gpu=config_requires_gpu(release),
+                              cpu_default=int(plan.get("max_workers", 1)), job_count=len(plan["jobs"]))
     initialise(queue_dir)
     published = publish_release(queue_dir, Path(state["release"]), operator)
     run_dir = next_directory(Path(state["output"]) / "runs", "run")
@@ -136,7 +190,8 @@ def main() -> int:
     canary_parser = commands.add_parser("canary")
     canary_parser.add_argument("--well"); canary_parser.add_argument("--gpus", default="auto")
     submit_parser = commands.add_parser("submit")
-    submit_parser.add_argument("--operator", required=True); submit_parser.add_argument("--workers", type=int, default=1)
+    smoke_parser = commands.add_parser("throughput-smoke"); smoke_parser.add_argument("--gpus", default="auto")
+    submit_parser.add_argument("--operator", required=True); submit_parser.add_argument("--workers", type=int, default=0)
     submit_parser.add_argument("--retries", type=int, default=1); submit_parser.add_argument("--gpus", default="auto")
     commands.add_parser("status")
     complete = commands.add_parser("complete-plate-qc"); complete.add_argument("--review", required=True, type=Path)
@@ -146,6 +201,8 @@ def main() -> int:
         state = json.loads(state_path.read_text(encoding="utf-8"))
         if args.action == "canary":
             payload = canary(state, state_path, args.well, args.gpus)
+        elif args.action == "throughput-smoke":
+            payload = throughput_smoke(state, state_path, args.gpus)
         elif args.action == "submit":
             payload = submit_batch(state, state_path, args.operator, args.workers, args.retries, args.gpus)
         elif args.action == "status":

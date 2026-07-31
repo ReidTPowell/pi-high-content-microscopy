@@ -15,7 +15,7 @@ Keep exactly one PiHCA package source active. Do not install the GitHub package 
 Set `PIHCA_PYTHON` to the locked analysis interpreter used by Pi. Without it, intake still works and preconfiguration reports missing engines instead of silently using a different environment:
 
 ```sh
-export PIHCA_PYTHON=/opt/pi-hca/envs/0.7.0/bin/python
+export PIHCA_PYTHON=/opt/pi-hca/envs/0.8.0/bin/python
 ```
 
 Create a reproducible image-analysis runtime once per release:
@@ -98,7 +98,7 @@ Install only the reader or analysis engine needed for the assay: `pip install '.
 
 Pi should coordinate the workflow: discover plates, capture the assay contract, build and validate manifests, prepare seeded QC samples, request human review of raw images and overlays, then run a reviewed pipeline. Batch plans process one plate at a time and parallelize wells only within that plate. `hca_share.py` produces a portable zip of results, review decisions, configurations, and provenance while excluding source TIFFs.
 
-After `pi install`, start a new Pi session so package skills are discovered. In the session, resolve the installed `SKILL.md` directory and run `hca_doctor.py` before the workflow. The agent should keep stage logs in the well output directory and present the compact `pipeline-summary.json`, QC report, review decision, and relationship QC counts rather than streaming image-processing logs.
+After `pi install`, start a new Pi session. The extension supplies the PiHCA persona directly and auto-activates for `piHCA`, `high-content microscopy`, and Molecular `HCS.ai` requests; it does not need to find or invoke a separate skill. Persisted workflows are hash-audited from disk before a new session resumes them. The agent should present compact summaries, visual QC, review decisions, and relationship counts rather than streaming image-processing logs.
 
 For cell-level assays, nuclear and cell masks are separate products. `hca_relate.py` maps nuclei to cells by pixel overlap and only subtracts assigned nuclei from the corresponding cell to form cytoplasm. It reports orphan nuclei, low-overlap assignments, and ties instead of forcing a biological relationship.
 
@@ -145,6 +145,7 @@ Cellpose model settings are tuned before filtering. A stage can declare `diamete
 ```sh
 python3 skills/high-content-microscopy/scripts/hca_cellpose_tune.py \
   --image /path/to/dapi.tif --model nuclei --gpu \
+  --gpus auto --workers 0 \
   --diameters auto,18,22 --flow-thresholds 0.3,0.4 \
   --cellprob-thresholds -1,0 --output-dir pilot/nuclei-cellpose-candidates
 ```
@@ -174,18 +175,18 @@ python3 skills/high-content-microscopy/scripts/hca_vision_review.py template \
   --output pilot/vision-review.pending.json
 ```
 
-Pi completes the template after inspecting each overlay against its raw image, then runs `finalize` to produce ranked, acceptable candidates. The artifact records the vision model/reviewer, scores, observed split/merge/false-object errors, and filter recommendations. It is intentionally not sufficient to publish a config without named human approval.
+Pi submits exactly one structured decision per hash-bound image through `pihca_submit_vision_review`. The proposal records the vision model, scores, split/merge/false-object errors, and filter recommendations. A named human must explicitly approve it before the parameters enter a versioned config. Held-out automated review uses the same proposal and named-human gate.
 
 For a plate acquisition with barcode `70126`, the default analysis root is `70126_piHCA` beside the barcode-level raw directory. Pilots, validation, approved releases, and production runs use separate immutable namespaces below that root.
 
 ## Workstation deployment
 
-For managed GPU workstations, Pi is the operator-facing control plane: it prepares a reviewed plan, explicitly submits a plate job, monitors the queue, and reports compact results. It does not silently discover or start analyses. Each workstation uses the same locked environment, created once per release:
+For managed GPU workstations, Pi is the operator-facing control plane: it prepares a reviewed plan, explicitly submits a plate job, monitors the queue, and reports compact results. It does not silently discover or start analyses. `auto` resource admission discovers zero to N GPUs at runtime from free memory, utilization, and cooperative locks. GPU-required configs fail when none are eligible; CPU-capable configs retain a CPU path. Optimization keeps one Cellpose model resident per admitted GPU, held-out wells are assigned one per GPU, and production can run one untouched-well-per-GPU throughput smoke before batch approval. Each workstation uses the same locked environment, created once per release:
 
 ```sh
 skills/high-content-microscopy/scripts/setup_env.sh \
-  --env /opt/pi-hca/envs/0.7.0 --extras ome,qc,review,cellpose \
-  --lock-file /opt/pi-hca/envs/0.7.0/runtime-lock.json
+  --env /opt/pi-hca/envs/0.8.0 --extras ome,qc,review,cellpose \
+  --lock-file /opt/pi-hca/envs/0.8.0/runtime-lock.json
 ```
 
 Initialize a shared queue directory once. Its SQLite file is an audit index; job requests and worker results are separately published as atomic JSON artifacts. Keep all queue administration on a filesystem with reliable locking. Do not put the SQLite file on an unreliable network mount.

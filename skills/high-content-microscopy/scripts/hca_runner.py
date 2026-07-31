@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
 import os
 import subprocess
@@ -12,12 +11,12 @@ import threading
 import time
 from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hca_contract import atomic_write_json, gpu_inventory, provenance, sha256
+from hca_contract import atomic_write_json, provenance, sha256
 from hca_release import verify_release
+from hca_resources import admit_gpus, gpu_inventory, gpu_reservation, resolve_workers
 from hca_runtime import verify
 
 
@@ -67,21 +66,6 @@ def pipeline_invocation(job: dict, release: dict, staging: Path, pipeline_script
     if fail_on_qc:
         command.append("--fail-on-qc")
     return command
-
-
-@contextmanager
-def gpu_reservation(gpu: int | None):
-    """Serialize GPU use across independent PiHCA runner processes on one host."""
-    if gpu is None:
-        yield None
-        return
-    lock_path = Path("/tmp") / f"pihca-gpu-{gpu}.lock"
-    with lock_path.open("a", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield str(lock_path)
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def run_job(job: dict, release: dict, output_root: Path, retries: int, gpus: list[int], job_index: int,
@@ -231,8 +215,8 @@ def main() -> int:
     parser.add_argument("--fail-on-qc", action="store_true")
     args = parser.parse_args()
     try:
-        if args.workers < 1 or args.retries < 0 or args.fail_fast_count < 1:
-            raise ValueError("workers and fail-fast-count must be positive; retries cannot be negative")
+        if args.workers < 0 or args.retries < 0 or args.fail_fast_count < 1:
+            raise ValueError("workers and retries cannot be negative; fail-fast-count must be positive")
         release_path = args.release.expanduser().resolve()
         release = verify_release(release_path)
         release["_path"] = str(release_path)
@@ -241,22 +225,13 @@ def main() -> int:
             raise ValueError("runtime lock verification failed: " + "; ".join(errors))
         plan = json.loads(args.plan.read_text(encoding="utf-8"))
         inventory = gpu_inventory()
-        if args.gpus == "none":
-            gpus = []
-        elif args.gpus == "auto":
-            gpus = [gpu["index"] for gpu in inventory if gpu["free_mib"] >= args.min_free_gib * 1024]
-        else:
-            gpus = [int(value) for value in args.gpus.split(",")]
-            available = {gpu["index"] for gpu in inventory}
-            if missing := sorted(set(gpus) - available):
-                raise ValueError(f"requested GPUs are unavailable: {missing}")
+        gpus = admit_gpus(args.gpus, min_free_gib=args.min_free_gib, inventory=inventory)
         approved_config = json.loads(Path(release["config"]["path"]).read_text())
         requires_gpu = any(stage.get("enabled") and stage.get("gpu") for stage in
                            approved_config["analysis"].get("segmentation", {}).values() if isinstance(stage, dict))
         requires_gpu = requires_gpu or approved_config["analysis"].get("embedding", {}).get("enabled", False)
-        if requires_gpu and not gpus:
-            raise ValueError("approved configuration requires a GPU, but none passed admission control")
-        workers = min(args.workers, len(gpus)) if requires_gpu else args.workers
+        workers = resolve_workers(args.workers, gpu_ids=gpus, requires_gpu=requires_gpu,
+                                  cpu_default=int(plan.get("max_workers", 1)), job_count=len(plan["jobs"]))
         run_dir = args.run_dir.expanduser().resolve()
         run_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_json(run_dir / "provenance.json", provenance(Path(plan["source_manifest"]),
@@ -265,6 +240,8 @@ def main() -> int:
                                    args.fail_fast_count, args.pipeline_script.expanduser().resolve(),
                                    args.canary_well, args.fail_on_qc)
         summary = {"release_id": release["id"], "aborted": aborted, "results": results,
+                   "resources": {"requested_gpus": args.gpus, "admitted_gpus": gpus,
+                                 "workers": workers, "inventory": inventory},
                    "counts": dict(Counter(item["status"] for item in results))}
         atomic_write_json(run_dir / "run-summary.json", summary)
         print(json.dumps({"event": "run_finished", **summary["counts"], "aborted": aborted,

@@ -9,7 +9,7 @@ Accelerate analysis without trading away biological validity, traceability, or o
 
 ## Start Natively
 
-For every piHCA request containing a path, resolve this installed skill directory and immediately run:
+The PiHCA extension provides this persona and deterministic router directly. Do not search for this skill with `skill_manage`. For every PiHCA request containing a path, use the registered intake/resume flow immediately. The equivalent standalone intake is:
 
 ```sh
 python3 <skill-dir>/scripts/hca_intake.py --input <user-path>
@@ -40,13 +40,13 @@ Use this state order and never restart an earlier phase unless the user changes 
 3. Confirm segmentation roles and human or automated optimization.
    Call `pihca_list_templates` and recommend the closest executable template before collecting its required confirmations.
 4. Call `pihca_prepare`; do not just show its command.
-5. Call `pihca_tune_nuclei`, review every candidate, and use `pihca_accept_review` to version the accepted parameters.
+5. Call `pihca_tune_nuclei`, review every candidate, and use `pihca_accept_review` for human review or the vision proposal/approval tools for automated review.
 6. Call `pihca_tune_cells`; review boundaries and relationship QC, then version that decision.
 7. Call `pihca_review_filters`; accept only explicit no-filter settings or filters with accepted exclusion overlays.
 8. Call `pihca_run_heldout` and review every independent held-out field.
 9. Record held-out evidence, obtain named approval, and create an immutable release.
-10. Run one untouched production canary. Present it and wait for explicit batch approval.
-11. Submit one plate through `pihca_submit_batch`, poll `pihca_status`, and complete plate QC.
+10. Run one untouched production canary, then `pihca_run_throughput_smoke` to exercise one untouched well per admitted GPU.
+11. Present both results and wait for explicit batch approval. Submit one plate through `pihca_submit_batch`, poll `pihca_status`, and complete plate QC.
 
 When the user says `continue`, execute the next safe state transition. Do not repeat a proposal, repeat intake, inspect arbitrary sidecars, or narrate an action without performing it.
 
@@ -68,7 +68,7 @@ Use only enabled stages, in this order:
 
 ## Optimize Segmentation
 
-Tune nuclei and cell boundaries separately. Run bounded Cellpose sweeps with `hca_cellpose_tune.py`. For cell candidates, pass `--reference-nuclei` so ranking includes relational QC. Object count alone is never an objective. See [optimization protocol](references/optimization.md).
+Tune nuclei and cell boundaries separately. Run bounded Cellpose sweeps with `hca_cellpose_tune.py`. `--gpus auto --workers 0` admits any eligible zero-to-N GPU topology and keeps one model resident per admitted GPU; never assume a fixed device count. For cell candidates, pass `--reference-nuclei` so ranking includes relational QC. Object count alone is never an objective. See [optimization protocol](references/optimization.md).
 
 ### Human-In-The-Loop
 
@@ -82,10 +82,10 @@ Give the returned URL to the user. Poll `status` without blocking the conversati
 
 ### Automated Vision Loop
 
-Use `hca_review_ui.py build` to create side-by-side PNG assets and `hca_vision_review.py template` for the review contract. Inspect every raw/overlay pair with the session's image-capable model, fill all scores/issues/uncertainty, and finalize. Advance `hca_optimize.py` for at most the configured rounds. Refine diameter, flow threshold, and cell-probability threshold from observed errors; include orphan and ambiguous assignment penalties for secondary objects. A score above threshold stops optimization but still requires named human approval before publication or batch use.
+Use the registered automated-review tools to create side-by-side PNG assets and a hash-bound review contract. Inspect every raw/overlay pair with the session's image-capable model and submit every score, issue, uncertainty, and proposed filter through the structured tool. Refine diameter, flow threshold, and cell-probability threshold from observed errors; include orphan and ambiguous assignment penalties for secondary objects. Automated segmentation and held-out reviews always stop at a proposal and require explicit named-human approval before workflow acceptance.
 
 ## Production And Sharing
 
-Run production only through the registered PiHCA release, canary, and queue tools. A release binds the approved config, runtime, manifest, stage reviews, held-out evidence, operator, and reviewer. `hca_runner.py` accepts that release and a structured plan; it does not accept model-authored shell. It journals each completed well, uses deterministic GPU assignment, and stops dispatch after repeated startup failures. Archive stale staging with `pihca_archive_staging`; never delete pilot or failed-run evidence. Default output is `<Barcode>_piHCA` beside the barcode-level input directory, with immutable `pilots/`, `validation/`, `releases/`, and `runs/` namespaces. Generate a plate report, then use `hca_share.py` for a portable bundle that excludes raw TIFFs.
+Run production only through the registered PiHCA release, canary, throughput-smoke, and queue tools. A release binds the approved config, runtime, manifest, stage reviews, held-out evidence, operator, and reviewer. `hca_runner.py` accepts that release and a structured plan; it does not accept model-authored shell. It journals each completed well, uses resource-adaptive deterministic GPU assignment, and stops dispatch after repeated startup failures. Archive stale staging with `pihca_archive_staging`; never delete pilot or failed-run evidence. Default output is `<Barcode>_piHCA` beside the barcode-level input directory, with immutable `pilots/`, `validation/`, `releases/`, and `runs/` namespaces. Generate a plate report, then use `hca_share.py` for a portable bundle that excludes raw TIFFs.
 
 Do not claim biological effects without reviewed controls, plate-map context, segmentation acceptance, exclusion audits, and statistics at the correct experimental unit. Surface failures and uncertainty instead of forcing assignments or continuing a batch.

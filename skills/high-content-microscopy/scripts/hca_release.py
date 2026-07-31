@@ -42,6 +42,14 @@ def approved_review(path: Path) -> dict:
     images = review.get("review_images", [])
     if images and any(item.get("decision") not in {"accepted", "approved"} for item in images):
         raise ValueError(f"every review image must have an accepted decision: {path}")
+    for image in images:
+        if not image.get("sha256"):
+            continue
+        artifact = Path(image.get("path", ""))
+        if not artifact.is_absolute():
+            artifact = path.parent / artifact
+        if not artifact.is_file() or sha256(artifact) != image["sha256"]:
+            raise ValueError(f"review image is missing or changed: {path}")
     return review
 
 
@@ -72,6 +80,12 @@ def passed_heldout(path: Path, config: dict) -> dict:
             overlay = path.parent / overlay
         if not overlay.is_file() or sha256(overlay) != field.get("overlay_sha256"):
             raise ValueError(f"held-out overlay is missing or changed: {field.get('id')}")
+        for view in field.get("overlays", []):
+            artifact = Path(view.get("path", ""))
+            if not artifact.is_absolute():
+                artifact = path.parent / artifact
+            if not artifact.is_file() or sha256(artifact) != view.get("sha256"):
+                raise ValueError(f"held-out review view is missing or changed: {field.get('id')}")
     return validation
 
 
@@ -99,7 +113,8 @@ def copy_bound_json(source: Path, destination: Path, evidence_dir: Path) -> None
             return {item_key: bind(item_value, item_key) for item_key, item_value in value.items()}
         if isinstance(value, list):
             return [bind(item) for item in value]
-        if isinstance(value, str) and key in {"path", "before", "after", "audit", "overlay"}:
+        if isinstance(value, str) and key in {"path", "before", "after", "audit", "overlay",
+                                                  "review_image", "raw_review_image", "source_candidates"}:
             artifact = Path(value)
             if artifact.is_file():
                 counter += 1
@@ -149,6 +164,8 @@ def create_release(state: dict, operator: str, reviewer: str) -> tuple[Path, dic
     runtime_source = Path(state["runtime_lock"])
     manifest_source = Path(state["manifest"])
     heldout_source = Path(state["heldout_validation"])
+    if state.get("config_sha256") and state["config_sha256"] != sha256(config_source):
+        raise ValueError("workflow config hash does not match the current config; restart from the last trusted review")
     config = json.loads(config_source.read_text(encoding="utf-8"))
     passed_heldout(heldout_source, config)
     reviews = []

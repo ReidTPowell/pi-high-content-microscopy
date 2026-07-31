@@ -31,6 +31,8 @@ def main() -> int:
     parser.add_argument("--diameters", default="auto,24,30")
     parser.add_argument("--flow-thresholds", default="0.3,0.4")
     parser.add_argument("--cellprob-thresholds", default="-0.5,0")
+    parser.add_argument("--gpus", default="auto")
+    parser.add_argument("--workers", type=int, default=0)
     args = parser.parse_args()
     state_path = args.workflow_state.expanduser().resolve()
     state = json.loads(state_path.read_text(encoding="utf-8"))
@@ -59,7 +61,7 @@ def main() -> int:
         command.extend(["--reference-nuclei", accepted_nucleus["labels"], "--min-overlap",
                         str(config["analysis"]["segmentation"].get("relationship", {}).get("min_overlap", 0.5))])
     if cell.get("gpu"):
-        command.append("--gpu")
+        command.extend(["--gpu", "--gpus", args.gpus, "--workers", str(args.workers)])
     result = subprocess.run(command, capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "cell Cellpose sweep failed")

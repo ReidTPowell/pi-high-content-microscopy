@@ -1,6 +1,6 @@
 [project]
 name = "pi-high-content-microscopy"
-version = "0.7.0"
+version = "0.8.0"
 requires-python = ">=3.10"
 dependencies = []
 
@@ -34,8 +34,8 @@ py-modules = [
   "hca_manifest", "hca_measure", "hca_metadata", "hca_nuclei_pilot", "hca_openphenom_adapter",
   "hca_optimize", "hca_overlay", "hca_pilot_plan", "hca_pipeline", "hca_plate_review", "hca_preconfigure", "hca_puncta",
   "hca_preflight", "hca_prepare", "hca_preprocess", "hca_production", "hca_qc", "hca_queue",
-  "hca_recover", "hca_relate", "hca_release", "hca_report", "hca_review", "hca_review_ui",
-  "hca_runner", "hca_runtime", "hca_segment", "hca_share", "hca_templates", "hca_validate", "hca_vision_review",
+  "hca_recover", "hca_relate", "hca_relational_overlay", "hca_release", "hca_report", "hca_resume", "hca_review", "hca_review_ui",
+  "hca_resources", "hca_runner", "hca_runtime", "hca_segment", "hca_share", "hca_templates", "hca_validate", "hca_vision_review",
   "hca_well_plan", "hca_workflow"
 ]
 

@@ -13,6 +13,15 @@ RELEASE = importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(RELEASE
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_present_mismatched_workflow_config_hash_blocks_release(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); config = root / "config.json"; config.write_text("{}")
+            with self.assertRaisesRegex(ValueError, "config hash"):
+                RELEASE.create_release({"phase": "release_approval_required", "config": str(config),
+                                        "config_sha256": "wrong", "runtime_lock": str(config),
+                                        "manifest": str(config), "heldout_validation": str(config)},
+                                       "operator", "reviewer")
+
     def test_incomplete_image_review_cannot_be_approved(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "review.json"

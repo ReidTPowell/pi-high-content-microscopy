@@ -220,6 +220,13 @@ def main() -> int:
             field_result["relationship_qc"] = "failed" if failed else "passed"
             labels_by_region["cytoplasm"] = relation_dir / "cytoplasm-by-cell.tif"
             default_role_by_region["cytoplasm"] = cell["channel_role"]
+            if segmentation.get("overlays"):
+                relationship_overlay = field_dir / "relationship-overlay.tif"
+                run([sys.executable, str(script_dir / "hca_relational_overlay.py"),
+                     "--image", str(image_for(stage_channels["cell"])), "--nuclei", str(labels_by_region["nucleus"]),
+                     "--assigned-nuclei", str(relation_dir / "assigned-nuclei-by-cell.tif"),
+                     "--cells", str(labels_by_region["cell"]), "--output", str(relationship_overlay)], log_path)
+                field_result["relationship_overlay"] = str(relationship_overlay)
 
         metrics, regions, channel_roles = configured_metrics, configured_regions, configured_roles
         measurement_outputs = {}

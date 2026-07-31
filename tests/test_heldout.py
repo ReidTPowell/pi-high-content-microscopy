@@ -25,3 +25,16 @@ class HeldoutTests(unittest.TestCase):
             selected = HELDOUT.choose_jobs({"jobs": jobs}, "A01", minimum_wells=2, minimum_fields=5)
             self.assertNotIn("A01", [job["well"] for job in selected])
             self.assertGreaterEqual(sum(len(HELDOUT.field_ids(Path(job["manifest"]))) for job in selected), 5)
+
+    def test_automated_review_requires_named_human_approval(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); overlay = root / "overlay.tif"; overlay.write_bytes(b"x")
+            (root / "heldout-evidence.json").write_text(json.dumps({"wells": ["B01"], "fields": [
+                {"id": "B01-s1", "well": "B01", "overlay": str(overlay),
+                 "overlay_sha256": HELDOUT.sha256(overlay), "relationship_qc": "passed"}]}))
+            proposal = HELDOUT.submit_vision_review(root, "vision-model", [
+                {"id": "B01-s1", "decision": "accepted"}])
+            self.assertEqual(proposal["status"], "human_approval_required")
+            validation = HELDOUT.approve_vision_review(proposal, "human-reviewer")
+            self.assertEqual(validation["status"], "passed")
+            self.assertEqual(validation["reviewer"], "human-reviewer")

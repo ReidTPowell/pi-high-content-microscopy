@@ -26,6 +26,8 @@ def main() -> int:
     parser.add_argument("--diameters", default="auto,18,24")
     parser.add_argument("--flow-thresholds", default="0.3,0.4")
     parser.add_argument("--cellprob-thresholds", default="-1,0")
+    parser.add_argument("--gpus", default="auto")
+    parser.add_argument("--workers", type=int, default=0)
     args = parser.parse_args()
 
     state_path = args.workflow_state.expanduser().resolve()
@@ -53,7 +55,7 @@ def main() -> int:
         f"--cellprob-thresholds={args.cellprob_thresholds}", "--output-dir", str(candidates),
     ]
     if nucleus_stage.get("gpu"):
-        command.append("--gpu")
+        command.extend(["--gpu", "--gpus", args.gpus, "--workers", str(args.workers)])
     process = subprocess.run(command, capture_output=True, text=True)
     if process.returncode:
         raise RuntimeError(process.stderr.strip() or process.stdout.strip() or "nuclei Cellpose sweep failed")

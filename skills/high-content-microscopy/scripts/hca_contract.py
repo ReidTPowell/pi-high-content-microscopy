@@ -5,10 +5,11 @@ import hashlib
 import json
 import platform
 import re
-import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+from hca_resources import gpu_inventory
 
 REQUIRED_RECORD_FIELDS = {"path", "format", "adapter", "plate", "well", "row", "column", "site", "timepoint", "channel", "z", "prefix"}
 BARCODE_PATTERN = re.compile(r'"(?:barcode|plateid)"\s*:\s*"([^"]+)"', re.IGNORECASE)
@@ -212,16 +213,6 @@ def validate_config(config: dict[str, Any]) -> list[str]:
         if not relationship.get("enabled") or not {"nucleus", "cytoplasm"}.issubset(regions):
             errors.append("nucleus_to_cytoplasm_ratio requires relational nucleus and cytoplasm measurements")
     return errors
-
-
-def gpu_inventory() -> list[dict[str, int]]:
-    try:
-        output = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"], text=True
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return []
-    return [{"index": int(row.split(",")[0]), "free_mib": int(row.split(",")[1])} for row in output.splitlines() if row]
 
 
 def provenance(manifest: Path, config: Path | None = None, runtime_lock: Path | None = None) -> dict[str, Any]:
