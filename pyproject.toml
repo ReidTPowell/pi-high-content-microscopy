@@ -39,5 +39,8 @@ py-modules = [
   "hca_well_plan", "hca_workflow"
 ]
 
+[tool.setuptools.data-files]
+"share/pi-high-content-microscopy/configs" = ["skills/high-content-microscopy/configs/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

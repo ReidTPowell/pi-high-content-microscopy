@@ -4,11 +4,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 
-CONFIG_DIR = Path(__file__).parent.parent / "configs"
+def find_config_dir(module_file: Path = Path(__file__), prefix: Path = Path(sys.prefix)) -> Path:
+    override = os.environ.get("PIHCA_CONFIG_DIR")
+    candidates = [Path(override)] if override else []
+    candidates.extend([
+        module_file.resolve().parent.parent / "configs",
+        prefix.resolve() / "share" / "pi-high-content-microscopy" / "configs",
+    ])
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]
+
+
+CONFIG_DIR = find_config_dir()
 
 
 def catalog() -> list[dict]:

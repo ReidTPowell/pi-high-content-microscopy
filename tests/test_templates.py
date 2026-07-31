@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import tempfile
 import sys
 import unittest
 from pathlib import Path
@@ -46,3 +47,12 @@ class TemplateTests(unittest.TestCase):
                    for index in range(3)]
         fields = PILOT.select_fields(records, config, 3)
         self.assertTrue(all(set(field["channels"]) == {"0"} for field in fields))
+
+    def test_installed_module_finds_shared_template_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = Path(directory)
+            installed = prefix / "share/pi-high-content-microscopy/configs"
+            installed.mkdir(parents=True)
+            self.assertEqual(
+                TEMPLATES.find_config_dir(prefix / "site-packages/hca_templates.py", prefix), installed
+            )
